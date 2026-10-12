@@ -26,16 +26,7 @@
 namespace opdssync {
 namespace {
 
-constexpr uint8_t MAX_BOOKS_PER_SERVER = 5;
-constexpr uint8_t MAX_PAGES = 3;
 constexpr const char* LOG_PATH = "/.crosspoint/opds_sync.txt";
-
-struct Pending {
-  std::string key;
-  std::string title;
-  std::string author;
-  std::string href;
-};
 
 // One ledger per server and feed: changing the feed starts a fresh baseline.
 std::string ledgerPath(const OpdsServer& server) {
@@ -43,28 +34,6 @@ std::string ledgerPath(const OpdsServer& server) {
   const uint32_t id = static_cast<uint32_t>(OpdsSeenLedger::hashKey(server.url + '|' + server.syncFeed));
   snprintf(path, sizeof(path), "/.crosspoint/opds_seen_%08x.bin", static_cast<unsigned>(id));
   return path;
-}
-
-// False when the file is absent or unreadable, which marks a first run.
-bool loadLedger(const std::string& path, OpdsSeenLedger& ledger) {
-  HalFile file;
-  if (!Storage.openFileForRead("OSY", path, file)) return false;
-  const size_t size = file.size();
-  if (size == 0 || size > OpdsSeenLedger::MAX_SERIALIZED_BYTES) return false;
-  std::vector<uint8_t> bytes(size);
-  if (file.read(bytes.data(), size) != static_cast<int>(size)) return false;
-  return ledger.deserialize(bytes.data(), size);
-}
-
-void saveLedger(const std::string& path, const OpdsSeenLedger& ledger) {
-  std::vector<uint8_t> bytes;
-  ledger.serialize(bytes);
-  HalFile file;
-  if (!Storage.openFileForWrite("OSY", path, file)) {
-    LOG_ERR("OSY", "Cannot write ledger %s", path.c_str());
-    return;
-  }
-  file.write(bytes.data(), bytes.size());
 }
 
 // The entry id is the stable identity; fall back to the download link.
@@ -75,115 +44,90 @@ bool heapFitsTls() {
          ESP.getMaxAllocHeap() >= HttpDownloader::MIN_TLS_MAX_ALLOC;
 }
 
-std::string destinationPath(const Pending& book) {
-  const char* folder = SETTINGS.opdsDownloadFolder;
-  bool haveFolder = folder[0] != '\0';
-  if (haveFolder && !Storage.exists(folder) && !Storage.mkdir(folder)) haveFolder = false;
-  std::string path;
-  if (haveFolder) path += folder;
-  path += '/';
-  path += opdsBookFilename(book.author, book.title, static_cast<OpdsFilenameFormat>(SETTINGS.opdsFilenameFormat));
-  return path;
-}
+class DeviceBackend final : public Backend {
+ public:
+  DeviceBackend(const OpdsServer& server, const unsigned long deadlineMs)
+      : server(server), deadlineMs(deadlineMs), ledgerFile(ledgerPath(server)) {}
 
-enum class Fetch { Ok, Failed, AuthFailed };
+  bool canContinue() override { return static_cast<long>(millis() - deadlineMs) < 0 && heapFitsTls(); }
 
-Fetch fetchPage(const OpdsServer& server, const std::string& url, OpdsParser& parser) {
-  OpdsParserStream stream{parser};
-  if (!HttpDownloader::fetchUrl(url, stream, server.username, server.password)) {
-    const int status = HttpDownloader::lastStatus();
-    return (status == 401 || status == 403) ? Fetch::AuthFailed : Fetch::Failed;
-  }
-  return parser ? Fetch::Ok : Fetch::Failed;
-}
-
-void syncServer(const OpdsServer& server, const unsigned long deadlineMs, Summary& summary) {
-  summary.servers++;
-  const std::string path = ledgerPath(server);
-  OpdsSeenLedger ledger;
-  const bool baseline = !loadLedger(path, ledger);
-  LOG_INF("OSY", "Syncing %s (%s)", server.name.c_str(), baseline ? "baseline" : "incremental");
-
-  std::string pageUrl = UrlUtils::buildUrl(server.url, server.syncFeed);
-  uint8_t budget = MAX_BOOKS_PER_SERVER;
-  bool ledgerChanged = false;
-
-  for (uint8_t page = 0; page < MAX_PAGES && !pageUrl.empty(); page++) {
-    if (static_cast<long>(millis() - deadlineMs) >= 0 || !heapFitsTls()) {
-      summary.failed++;
-      break;
-    }
-
-    std::vector<Pending> pending;
-    std::string nextUrl;
-    bool allSeen = false;
+  Page fetchPage(const std::string& url) override {
+    Page page;
+    // The parser (and its entries) is freed on return, before TLS takes the heap for downloads.
+    OpdsParser parser;
     {
-      OpdsParser parser;
-      const Fetch fetched = fetchPage(server, pageUrl, parser);
-      if (fetched != Fetch::Ok) {
-        summary.failed++;
-        summary.authFailed |= fetched == Fetch::AuthFailed;
-        break;
-      }
-
-      std::vector<std::string> keys;
-      std::vector<const OpdsEntry*> books;
-      for (const auto& entry : parser.getEntries()) {
-        if (entry.type != OpdsEntryType::BOOK) continue;
-        keys.push_back(entryKey(entry));
-        books.push_back(&entry);
-      }
-
-      if (baseline) {
-        for (const auto& key : keys) ledger.add(key);
-        ledgerChanged = true;
-      } else {
-        const OpdsPagePlan plan = planOpdsPage(keys, ledger, budget);
-        allSeen = plan.allSeen;
-        std::transform(plan.fetch.begin(), plan.fetch.end(), std::back_inserter(pending), [&](const size_t i) {
-          return Pending{keys[i], books[i]->title, books[i]->author, books[i]->href};
-        });
-      }
-      nextUrl = parser.getNextPageUrl();
-    }  // Parser (and its entries) freed before TLS takes the heap for downloads.
-
-    for (const auto& book : pending) {
-      if (static_cast<long>(millis() - deadlineMs) >= 0 || !heapFitsTls()) {
-        summary.failed++;
-        budget = 0;
-        break;
-      }
-      const std::string dest = destinationPath(book);
-      const std::string url = UrlUtils::buildUrl(pageUrl, book.href);
-      if (Storage.exists(dest.c_str())) {  // Already on the card: just remember it.
-        ledger.add(book.key);
-        ledgerChanged = true;
-        continue;
-      }
-      const auto result = HttpDownloader::downloadToFile(url, dest, nullptr, nullptr, server.username, server.password);
-      if (result == HttpDownloader::OK) {
-        clearBookCache(dest);
-        ledger.add(book.key);
-        ledgerChanged = true;
-        summary.downloaded++;
-        budget--;
-      } else {
-        LOG_ERR("OSY", "Download failed (%d): %s", static_cast<int>(result), book.title.c_str());
-        summary.failed++;
-        summary.authFailed |= result == HttpDownloader::UNAUTHORIZED;
-        if (result == HttpDownloader::UNAUTHORIZED) {
-          budget = 0;
-          break;
-        }
+      OpdsParserStream stream{parser};
+      if (!HttpDownloader::fetchUrl(url, stream, server.username, server.password)) {
+        const int status = HttpDownloader::lastStatus();
+        page.status = (status == 401 || status == 403) ? Page::Status::AuthFailed : Page::Status::Failed;
+        return page;
       }
     }
-
-    if (allSeen || budget == 0) break;
-    pageUrl = nextUrl.empty() ? nextUrl : UrlUtils::buildUrl(pageUrl, nextUrl);
+    if (!parser) {
+      page.status = Page::Status::Failed;
+      return page;
+    }
+    for (const auto& entry : parser.getEntries()) {
+      if (entry.type != OpdsEntryType::BOOK) continue;
+      page.books.push_back({entryKey(entry), entry.title, entry.author, entry.href});
+    }
+    page.nextHref = parser.getNextPageUrl();
+    return page;
   }
 
-  if (ledgerChanged) saveLedger(path, ledger);
-}
+  std::string resolveUrl(const std::string& base, const std::string& href) override {
+    return UrlUtils::buildUrl(base, href);
+  }
+
+  std::string destinationPath(const Book& book) override {
+    const char* folder = SETTINGS.opdsDownloadFolder;
+    bool haveFolder = folder[0] != '\0';
+    if (haveFolder && !Storage.exists(folder) && !Storage.mkdir(folder)) haveFolder = false;
+    std::string path;
+    if (haveFolder) path += folder;
+    path += '/';
+    path += opdsBookFilename(book.author, book.title, static_cast<OpdsFilenameFormat>(SETTINGS.opdsFilenameFormat));
+    return path;
+  }
+
+  bool fileExists(const std::string& path) override { return Storage.exists(path.c_str()); }
+
+  DownloadResult download(const std::string& url, const std::string& destPath) override {
+    const auto result =
+        HttpDownloader::downloadToFile(url, destPath, nullptr, nullptr, server.username, server.password);
+    if (result == HttpDownloader::OK) return DownloadResult::Ok;
+    LOG_ERR("OSY", "Download failed (%d): %s", static_cast<int>(result), destPath.c_str());
+    return result == HttpDownloader::UNAUTHORIZED ? DownloadResult::Unauthorized : DownloadResult::Failed;
+  }
+
+  bool loadLedger(OpdsSeenLedger& ledger) override {
+    HalFile file;
+    if (!Storage.openFileForRead("OSY", ledgerFile, file)) return false;
+    const size_t size = file.size();
+    if (size == 0 || size > OpdsSeenLedger::MAX_SERIALIZED_BYTES) return false;
+    std::vector<uint8_t> bytes(size);
+    if (file.read(bytes.data(), size) != static_cast<int>(size)) return false;
+    return ledger.deserialize(bytes.data(), size);
+  }
+
+  void saveLedger(const OpdsSeenLedger& ledger) override {
+    std::vector<uint8_t> bytes;
+    ledger.serialize(bytes);
+    HalFile file;
+    if (!Storage.openFileForWrite("OSY", ledgerFile, file)) {
+      LOG_ERR("OSY", "Cannot write ledger %s", ledgerFile.c_str());
+      return;
+    }
+    file.write(bytes.data(), bytes.size());
+  }
+
+  void onBookSaved(const std::string& destPath) override { clearBookCache(destPath); }
+
+ private:
+  const OpdsServer& server;
+  const unsigned long deadlineMs;
+  const std::string ledgerFile;
+};
 
 }  // namespace
 
@@ -219,7 +163,10 @@ Summary runAll(const unsigned long deadlineMs) {
   const std::vector<OpdsServer> servers = OPDS_STORE.getServers();
   for (const auto& server : servers) {
     if (server.syncFeed.empty() || server.url.empty()) continue;
-    syncServer(server, deadlineMs, summary);
+    summary.servers++;
+    LOG_INF("OSY", "Syncing %s", server.name.c_str());
+    DeviceBackend backend(server, deadlineMs);
+    syncFeed(backend, UrlUtils::buildUrl(server.url, server.syncFeed), summary);
   }
   if (summary.downloaded > 0) library::markLibraryIndexDirty();
   return summary;
