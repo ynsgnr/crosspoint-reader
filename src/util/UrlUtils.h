@@ -21,6 +21,7 @@ std::string encodeUnsafeUrlChars(const std::string& url);
 /**
  * Build full URL from server URL and path.
  * If path starts with /, it's an absolute path from the host root.
+ * If it starts with ?, it replaces the query of the server URL.
  * Otherwise, it's relative to the server URL.
  */
 std::string buildUrl(const std::string& serverUrl, const std::string& path);
