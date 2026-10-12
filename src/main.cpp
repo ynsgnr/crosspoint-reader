@@ -21,6 +21,8 @@
 #include <WiFi.h>
 #include <XteinkDetect.h>
 #include <builtinFonts/all.h>
+#include <esp_sleep.h>
+#include <soc/soc_caps.h>
 
 #include <cstring>
 
@@ -339,7 +341,10 @@ constexpr uint16_t OPDS_SYNC_MIN_BATTERY_PERCENT = 20;
 static bool batteryAllowsOpdsSync() { return powerManager.getBatteryPercentage() >= OPDS_SYNC_MIN_BATTERY_PERCENT; }
 
 static void armOpdsSyncWake() {
-  powerManager.setTimerWakeSeconds(batteryAllowsOpdsSync() ? opdssync::intervalSeconds() : 0);
+#if SOC_PM_SUPPORT_EXT1_WAKEUP  // S3 boards only: the C3 Xteink boards cut battery power instead of sleeping
+  const uint32_t seconds = batteryAllowsOpdsSync() ? opdssync::intervalSeconds() : 0;
+  if (seconds > 0) esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000ULL);
+#endif
 }
 
 // Enter deep sleep mode
@@ -552,7 +557,7 @@ void setup() {
   // timestamps, loan-expiry checks).
   trustedtime::init();
 
-  if (wakeupReason == HalGPIO::WakeupReason::Timer) {
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
     syncOnTimerWakeAndSleep();
     return;
   }

@@ -19,7 +19,8 @@ class CoverGridHomeUi final : public UiAppHost {
   static constexpr int MAX_BOOKS = 1 + GRID_COLUMNS * GRID_ROWS;
   static_assert(MAX_BOOKS <= HomeCoverCache::MAX_COVERS);
   explicit CoverGridHomeUi(GfxRenderer& renderer);
-  void begin(const std::vector<RecentBook>& books, bool hasOpds, bool hasSync, bool hasContinueReading);
+  void begin(const std::vector<RecentBook>& books, bool hasOpds, bool hasContinueReading);
+  void setHasSync(bool value) { hasSync = value; }
   void refreshCoverPaths();
   void setSelection(int selection) { selected = selection; }
   int selectedAction(const MappedInputManager& input);

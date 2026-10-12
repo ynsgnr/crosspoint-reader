@@ -1,3 +1,0 @@
-#pragma once
-
-enum class HomeMenuItem { NONE, FILE_BROWSER, LIBRARY, OPDS_BROWSER, FILE_TRANSFER, SETTINGS_MENU, SYNC };

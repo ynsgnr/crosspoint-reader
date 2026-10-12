@@ -251,13 +251,12 @@ void HomeActivity::onEnter() {
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
-    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasSync, hasContinueReading);
+    coverGridUi->setHasSync(hasSync);
+    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
   }
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE
-                      ? 0
-                      : base + homeMenuItemToIndex(initialMenuItem, hasLibrarySlot(), hasSync);
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
 
   // Trigger first update
   requestUpdate();
@@ -318,7 +317,11 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (homeMenuIndexToItem(menuIndex, hasLibrarySlot(), hasSync)) {
+    if (hasSync && selectorIndex == getMenuItemCount() - 1) {
+      runOpdsSyncWithPopups(renderer, silentRestart);
+      return;
+    }
+    switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -333,9 +336,6 @@ void HomeActivity::loop() {
         break;
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
-        break;
-      case HomeMenuItem::SYNC:
-        onSyncOpen();
         break;
       default:
         break;
@@ -593,5 +593,3 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
-
-void HomeActivity::onSyncOpen() { runOpdsSyncWithPopups(renderer, silentRestart); }

@@ -31,10 +31,9 @@ constexpr int COVER_ROW_EXTRA_HEIGHT = 8;
 CoverGridHomeUi::CoverGridHomeUi(GfxRenderer& renderer)
     : UiAppHost(renderer), coverCache(renderer), renderer(renderer) {}
 
-void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, bool opds, bool sync, bool continuing) {
+void CoverGridHomeUi::begin(const std::vector<RecentBook>& recent, bool opds, bool continuing) {
   books = &recent;
   hasOpds = opds;
-  hasSync = sync;
   hasContinueReading = continuing;
   if (!recent.empty()) coverCache.begin();
   resetUi();

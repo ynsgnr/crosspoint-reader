@@ -3,7 +3,6 @@
 #include <vector>
 
 #include "./FileBrowserActivity.h"
-#include "HomeMenuIndex.h"
 #include "RecentBooksStore.h"
 #include "activities/Activity.h"
 #include "components/CoverGridHomeUi.h"
@@ -20,7 +19,7 @@ class HomeActivity final : public Activity {
   bool firstRenderDone = false;
   bool hasOpdsServers = false;
   bool hasPlugins = false;
-  bool hasSync = false;  // a server has an auto-sync feed, so Sync is the last menu item
+  bool hasSync = false;  // a server has an auto-sync feed: Sync is the last menu item
   // The home "library" slot (index 2) shows Plugins when any plugin is
   // installed, otherwise OPDS. The index converters gate on its presence.
   bool hasLibrarySlot() const { return hasPlugins || hasOpdsServers; }
@@ -40,6 +39,31 @@ class HomeActivity final : public Activity {
   const HomeMenuItem initialMenuItem;
   const bool cleanInitialRefresh;
 
+  // Convert HomeMenuItem to menu index (used in onEnter)
+  static int menuItemToIndex(HomeMenuItem item, bool hasOpdsUrl) {
+    int i = 0;
+    if (item == HomeMenuItem::FILE_BROWSER) return i;
+    ++i;
+    if (item == HomeMenuItem::LIBRARY) return i;
+    ++i;
+    if (item == HomeMenuItem::OPDS_BROWSER) return hasOpdsUrl ? i : 0;
+    if (hasOpdsUrl) ++i;
+    if (item == HomeMenuItem::FILE_TRANSFER) return i;
+    ++i;
+    if (item == HomeMenuItem::SETTINGS_MENU) return i;
+    return 0;
+  }
+
+  // Convert menu index to HomeMenuItem (used in loop)
+  static HomeMenuItem indexToMenuItem(int idx, bool hasOpdsUrl) {
+    int i = 0;
+    if (idx == i++) return HomeMenuItem::FILE_BROWSER;
+    if (idx == i++) return HomeMenuItem::LIBRARY;
+    if (hasOpdsUrl && idx == i++) return HomeMenuItem::OPDS_BROWSER;
+    if (idx == i++) return HomeMenuItem::FILE_TRANSFER;
+    if (idx == i) return HomeMenuItem::SETTINGS_MENU;
+    return HomeMenuItem::NONE;
+  }
   void onSelectBook(const std::string& path);
   void onFileBrowserOpen();
   void onLibraryOpen();
@@ -47,7 +71,6 @@ class HomeActivity final : public Activity {
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
   void onPluginsOpen();
-  void onSyncOpen();
 
   int getMenuItemCount() const;
   bool storeCoverBuffer();    // Store frame buffer for cover image
