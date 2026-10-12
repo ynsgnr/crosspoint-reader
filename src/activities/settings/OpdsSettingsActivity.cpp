@@ -8,8 +8,8 @@
 #include "OpdsServerStore.h"
 #include "SilentRestart.h"
 #include "activities/util/KeyboardEntryActivity.h"
+#include "activities/util/OpdsSyncPopup.h"
 #include "components/UITheme.h"
-#include "network/OpdsAutoSync.h"
 
 namespace fui = freeink::ui;
 
@@ -97,21 +97,6 @@ bool OpdsSettingsActivity::saveServer() {
   return success;
 }
 
-void OpdsSettingsActivity::syncNow() {
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  const opdssync::Summary summary = opdssync::syncNow();
-
-  char message[64];
-  if (summary.wifiFailed) {
-    snprintf(message, sizeof(message), "%s", tr(STR_SYNC_NO_WIFI));
-  } else {
-    snprintf(message, sizeof(message), "%s: %u", tr(STR_SYNC_RESULT), summary.downloaded);
-  }
-  GUI.drawPopup(renderer, message);
-  delay(2500);
-  silentRestartToSettings();  // TLS leaves the heap fragmented; return on a fresh one
-}
-
 void OpdsSettingsActivity::handleSelection() {
   // Each field edit is saved immediately so partially configured servers
   // survive navigation and power-loss scenarios.
@@ -182,7 +167,7 @@ void OpdsSettingsActivity::handleSelection() {
                                                                    editServer.syncFeed, 127, InputType::Url),
                            handler);
   } else if (nav.selected == SYNC_NOW_ITEM && !isNewServer) {
-    syncNow();
+    runOpdsSyncWithPopups(renderer, silentRestartToSettings);
   } else if (nav.selected == DELETE_ITEM && !isNewServer) {
     // Delete flow is only available for existing servers.
     if (!OPDS_STORE.removeServer(static_cast<size_t>(serverIndex))) {

@@ -32,7 +32,6 @@ class OpdsSettingsActivity final : public UiListActivity {
   int getMenuItemCount() const;
   void handleSelection();
   bool saveServer();
-  void syncNow();
 
   // Row storage: at most 5 rows (Name/URL/Username/Password/Sync feed + Sync now + Delete, see
   // BASE_ITEMS in the .cpp), so a fixed-capacity array avoids any heap

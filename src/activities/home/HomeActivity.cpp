@@ -23,12 +23,18 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "SilentRestart.h"
 #include "activities/plugins/PluginCatalogActivity.h"  // anyPluginInstalled()
+#include "activities/util/OpdsSyncPopup.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/OpdsAutoSync.h"
 
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Library, File transfer, Settings
+  if (hasSync) {
+    count++;
+  }
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -232,6 +238,7 @@ void HomeActivity::onEnter() {
 
   hasOpdsServers = OPDS_STORE.hasServers();
   hasPlugins = anyPluginInstalled();
+  hasSync = opdssync::hasSyncFeed();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (UITheme::getInstance().hasCoverGridHome()) {
@@ -244,11 +251,13 @@ void HomeActivity::onEnter() {
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
-    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
+    coverGridUi->begin(recentBooks, hasLibrarySlot(), hasSync, hasContinueReading);
   }
 
   const auto base = static_cast<int>(recentBooks.size());
-  selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
+  selectorIndex = initialMenuItem == HomeMenuItem::NONE
+                      ? 0
+                      : base + homeMenuItemToIndex(initialMenuItem, hasLibrarySlot(), hasSync);
 
   // Trigger first update
   requestUpdate();
@@ -309,7 +318,7 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {
+    switch (homeMenuIndexToItem(menuIndex, hasLibrarySlot(), hasSync)) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
         break;
@@ -324,6 +333,9 @@ void HomeActivity::loop() {
         break;
       case HomeMenuItem::SETTINGS_MENU:
         onSettingsOpen();
+        break;
+      case HomeMenuItem::SYNC:
+        onSyncOpen();
         break;
       default:
         break;
@@ -531,6 +543,11 @@ void HomeActivity::render(RenderLock&&) {
     menuIcons.insert(menuIcons.begin() + 2, Plugins);
   }
 
+  if (hasSync) {
+    menuItems.push_back(tr(STR_SYNC_NOW));
+    menuIcons.push_back(Transfer);
+  }
+
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
     menuItems.insert(menuItems.begin(), tr(STR_CONTINUE_READING));
@@ -576,3 +593,5 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
+
+void HomeActivity::onSyncOpen() { runOpdsSyncWithPopups(renderer, silentRestart); }

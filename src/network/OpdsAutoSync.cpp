@@ -150,11 +150,12 @@ void writeResultLog(const Summary& summary) {
 
 }  // namespace
 
-bool enabled() {
-  if (SETTINGS.opdsSyncHours == 0) return false;
+bool hasSyncFeed() {
   const auto& servers = OPDS_STORE.getServers();
   return std::any_of(servers.begin(), servers.end(), [](const OpdsServer& s) { return !s.syncFeed.empty(); });
 }
+
+bool enabled() { return SETTINGS.opdsSyncHours != 0 && hasSyncFeed(); }
 
 uint32_t intervalSeconds() {
   if (!enabled()) return 0;
