@@ -318,7 +318,7 @@ void HomeActivity::loop() {
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
     if (hasSync && selectorIndex == getMenuItemCount() - 1) {
-      runOpdsSyncWithPopups(renderer, silentRestart);
+      startOpdsSync(*this, renderer, mappedInput, silentRestart);
       return;
     }
     switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {

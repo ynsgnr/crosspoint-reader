@@ -167,7 +167,7 @@ void OpdsSettingsActivity::handleSelection() {
                                                                    editServer.syncFeed, 127, InputType::Url),
                            handler);
   } else if (nav.selected == SYNC_NOW_ITEM && !isNewServer) {
-    runOpdsSyncWithPopups(renderer, silentRestartToSettings);
+    startOpdsSync(*this, renderer, mappedInput, silentRestartToSettings);
   } else if (nav.selected == DELETE_ITEM && !isNewServer) {
     // Delete flow is only available for existing servers.
     if (!OPDS_STORE.removeServer(static_cast<size_t>(serverIndex))) {

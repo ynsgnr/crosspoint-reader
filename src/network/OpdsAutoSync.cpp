@@ -133,7 +133,12 @@ bool joinSavedWifi() {
   if (WiFi.status() == WL_CONNECTED) return true;
   const auto credential = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
   if (!credential) return false;
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  WiFi.disconnect(true, true);
+  delay(100);
+  WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
+  WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
   WiFi.begin(credential->ssid.c_str(), credential->password.c_str());
   const unsigned long deadlineMs = millis() + WIFI_TIMEOUT_MS;
   while (WiFi.status() != WL_CONNECTED && millis() < deadlineMs) delay(100);

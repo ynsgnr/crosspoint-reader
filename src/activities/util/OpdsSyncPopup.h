@@ -1,7 +1,9 @@
 #pragma once
 
+class Activity;
 class GfxRenderer;
+class MappedInputManager;
 
-// Blocking manual OPDS sync with popups for progress and result. Reboots through
-// `restartAfterSync` afterwards: TLS leaves the heap fragmented.
-void runOpdsSyncWithPopups(GfxRenderer& renderer, void (*restartAfterSync)());
+// Manual OPDS sync: connects through the Wi-Fi selection screen like the OPDS browser,
+// then syncs with popups. Reboots through `restartAfterSync` afterwards: TLS leaves the heap fragmented.
+void startOpdsSync(Activity& host, GfxRenderer& renderer, MappedInputManager& mappedInput, void (*restartAfterSync)());
