@@ -445,6 +445,8 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "removeReadBooksFromRecents", StrId::STR_CAT_SYSTEM),
         SettingInfo::Toggle(StrId::STR_MOVE_FINISHED_TO_READ, &CrossPointSettings::moveFinishedToReadFolder,
                             "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM),
+        SettingInfo::Value(StrId::STR_OPDS_AUTO_SYNC_MINUTES, &CrossPointSettings::opdsSyncMinutes, {0, 240, 10},
+                           "opdsSyncMinutes", StrId::STR_CAT_SYSTEM),
 
         // OPDS download folder: persisted + web-exposed, but category-less so it
         // is hidden from the on-device Settings screen (edited via OPDS UI).

@@ -10,6 +10,7 @@ struct OpdsServer {
   std::string url;
   std::string username;
   std::string password;  // Plaintext in memory; obfuscated with hardware key on disk
+  std::string syncFeed;  // Auto-sync feed path or URL, relative to url; empty = no auto-sync
 };
 
 /**

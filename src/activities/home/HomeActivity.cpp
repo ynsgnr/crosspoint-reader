@@ -23,12 +23,18 @@
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
 #include "RecentBooksStore.h"
+#include "SilentRestart.h"
 #include "activities/plugins/PluginCatalogActivity.h"  // anyPluginInstalled()
+#include "activities/util/OpdsSyncPopup.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/OpdsAutoSync.h"
 
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Library, File transfer, Settings
+  if (hasSync) {
+    count++;
+  }
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -232,6 +238,7 @@ void HomeActivity::onEnter() {
 
   hasOpdsServers = OPDS_STORE.hasServers();
   hasPlugins = anyPluginInstalled();
+  hasSync = opdssync::hasSyncFeed();
 
   const auto& metrics = UITheme::getInstance().getMetrics();
   if (UITheme::getInstance().hasCoverGridHome()) {
@@ -244,6 +251,7 @@ void HomeActivity::onEnter() {
   if (coverGridUi) {
     fillCoverGridFromLibrary();
     resolveGridCoverPaths();
+    coverGridUi->setHasSync(hasSync);
     coverGridUi->begin(recentBooks, hasLibrarySlot(), hasContinueReading);
   }
 
@@ -309,6 +317,10 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
+    if (hasSync && selectorIndex == getMenuItemCount() - 1) {
+      startOpdsSync(*this, renderer, mappedInput, silentRestart);
+      return;
+    }
     switch (indexToMenuItem(menuIndex, hasLibrarySlot())) {
       case HomeMenuItem::FILE_BROWSER:
         onFileBrowserOpen();
@@ -529,6 +541,11 @@ void HomeActivity::render(RenderLock&&) {
   if (hasLibrarySlot()) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
     menuIcons.insert(menuIcons.begin() + 2, Plugins);
+  }
+
+  if (hasSync) {
+    menuItems.push_back(tr(STR_SYNC_NOW));
+    menuIcons.push_back(Transfer);
   }
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {

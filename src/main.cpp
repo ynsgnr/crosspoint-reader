@@ -21,6 +21,8 @@
 #include <WiFi.h>
 #include <XteinkDetect.h>
 #include <builtinFonts/all.h>
+#include <esp_sleep.h>
+#include <soc/soc_caps.h>
 
 #include <cstring>
 
@@ -37,6 +39,7 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/OpdsAutoSync.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/PluginEvents.h"
@@ -333,6 +336,17 @@ static void deliverSleepPluginEvents() {
   }
 }
 
+constexpr uint16_t OPDS_SYNC_MIN_BATTERY_PERCENT = 20;
+
+static bool batteryAllowsOpdsSync() { return powerManager.getBatteryPercentage() >= OPDS_SYNC_MIN_BATTERY_PERCENT; }
+
+static void armOpdsSyncWake() {
+#if SOC_PM_SUPPORT_EXT1_WAKEUP  // S3 boards only: the C3 Xteink boards cut battery power instead of sleeping
+  const uint32_t seconds = batteryAllowsOpdsSync() ? opdssync::intervalSeconds() : 0;
+  if (seconds > 0) esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000ULL);
+#endif
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -378,6 +392,22 @@ void enterDeepSleep(bool fromTimeout = false) {
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
+  armOpdsSyncWake();
+  powerManager.startDeepSleep(gpio);
+}
+
+// The display is never initialized on a timer wake, so the retained sleep screen stays on the panel.
+static void syncOnTimerWakeAndSleep() {
+  HalPowerManager::Lock powerLock;
+  if (opdssync::enabled() && batteryAllowsOpdsSync()) opdssync::syncNow();
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
+  trustedtime::note();
+  halTiltSensor.deepSleep();
+  Storage.prepareForDeepSleep();
+  armOpdsSyncWake();
   powerManager.startDeepSleep(gpio);
 }
 
@@ -527,6 +557,11 @@ void setup() {
   // timestamps, loan-expiry checks).
   trustedtime::init();
 
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+    syncOnTimerWakeAndSleep();
+    return;
+  }
+
   // Brightness and warmth are always restored. A normal wake starts with the
   // light off unless Restore Light on Wake is enabled; silent maintenance
   // reboots replay the live state captured at restart, so they neither go dark
@@ -542,6 +577,7 @@ void setup() {
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         Storage.prepareForDeepSleep();
+        armOpdsSyncWake();
         powerManager.startDeepSleep(gpio);
       }
       wakePowerReleasePending = true;
@@ -561,6 +597,7 @@ void setup() {
       break;
 #else
       Storage.prepareForDeepSleep();
+      armOpdsSyncWake();
       powerManager.startDeepSleep(gpio);
       break;
 #endif

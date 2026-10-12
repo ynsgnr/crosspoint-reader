@@ -14,6 +14,7 @@ void OpdsServerStore::toJson(JsonDocument& doc) const {
     obj["url"] = server.url;
     obj["username"] = server.username;
     obj["password_obf"] = obfuscation::obfuscateToBase64(server.password);
+    if (!server.syncFeed.empty()) obj["sync_feed"] = server.syncFeed;
   }
 }
 
@@ -32,6 +33,7 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
     server.url = obj["url"] | "";
     server.username = obj["username"] | "";
     server.password = extractPassword(obj, needsResave);
+    server.syncFeed = obj["sync_feed"] | "";
     servers.push_back(std::move(server));
   }
 
