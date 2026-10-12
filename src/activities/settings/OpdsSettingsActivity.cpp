@@ -3,7 +3,6 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
-#include <WiFi.h>
 
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
@@ -15,13 +14,10 @@
 namespace fui = freeink::ui;
 
 namespace {
-// Editable fields: Name, URL, Username, Password, Auto-Sync Feed.
-// Existing servers also show Sync Now and Delete (BASE_ITEMS, BASE_ITEMS + 1).
+// Editable fields; existing servers also show Sync Now and Delete after them.
 constexpr int BASE_ITEMS = 5;
 constexpr int SYNC_NOW_ITEM = BASE_ITEMS;
 constexpr int DELETE_ITEM = BASE_ITEMS + 1;
-constexpr unsigned long SYNC_WIFI_TIMEOUT_MS = 15000;
-constexpr unsigned long SYNC_DEADLINE_MS = 180000;
 }  // namespace
 
 OpdsSettingsActivity::OpdsSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -41,9 +37,7 @@ OpdsSettingsActivity::OpdsSettingsActivity(GfxRenderer& renderer, MappedInputMan
   fieldRowItems[DELETE_ITEM].actionValue = static_cast<int16_t>(DELETE_ITEM);
 }
 
-int OpdsSettingsActivity::getMenuItemCount() const {
-  return isNewServer ? BASE_ITEMS : BASE_ITEMS + 2;  // + Sync Now and Delete
-}
+int OpdsSettingsActivity::getMenuItemCount() const { return isNewServer ? BASE_ITEMS : BASE_ITEMS + 2; }
 
 void OpdsSettingsActivity::onEnter() {
   UiListActivity::onEnter();
@@ -105,18 +99,17 @@ bool OpdsSettingsActivity::saveServer() {
 
 void OpdsSettingsActivity::syncNow() {
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  const opdssync::Summary summary = opdssync::syncNow();
+
   char message[64];
-  if (opdssync::joinSavedWifi(SYNC_WIFI_TIMEOUT_MS)) {
-    const auto summary = opdssync::runAll(millis() + SYNC_DEADLINE_MS);
-    opdssync::writeLog(summary);
-    snprintf(message, sizeof(message), "%s: %u", tr(STR_SYNC_RESULT), summary.downloaded);
-  } else {
+  if (summary.wifiFailed) {
     snprintf(message, sizeof(message), "%s", tr(STR_SYNC_NO_WIFI));
+  } else {
+    snprintf(message, sizeof(message), "%s: %u", tr(STR_SYNC_RESULT), summary.downloaded);
   }
   GUI.drawPopup(renderer, message);
   delay(2500);
-  // A TLS session leaves the heap fragmented; come back to Settings on a fresh one.
-  silentRestartToSettings();
+  silentRestartToSettings();  // TLS leaves the heap fragmented; return on a fresh one
 }
 
 void OpdsSettingsActivity::handleSelection() {
@@ -176,7 +169,7 @@ void OpdsSettingsActivity::handleSelection() {
                                                                    editServer.password, 63, InputType::Text),
                            handler);
   } else if (nav.selected == 4) {
-    // Auto-sync feed, relative to the server URL or a full URL; empty turns auto-sync off
+    // Relative to the server URL, or a full URL; empty turns auto-sync off.
     auto handler = [this](const ActivityResult& result) {
       if (!result.isCancelled) {
         const auto& kb = std::get<KeyboardResult>(result.data);

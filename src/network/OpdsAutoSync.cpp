@@ -7,11 +7,11 @@
 #include <OpdsParser.h>
 #include <OpdsSeenLedger.h>
 #include <OpdsStream.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 
 #include <algorithm>
 #include <ctime>
-#include <iterator>
 #include <string>
 #include <vector>
 
@@ -26,9 +26,11 @@
 namespace opdssync {
 namespace {
 
-constexpr const char* LOG_PATH = "/.crosspoint/opds_sync.txt";
+constexpr const char* RESULT_LOG_PATH = "/.crosspoint/opds_sync.txt";
+constexpr unsigned long WIFI_TIMEOUT_MS = 15000;
+constexpr unsigned long RUN_DEADLINE_MS = 180000;
 
-// One ledger per server and feed: changing the feed starts a fresh baseline.
+// Keyed by server and feed, so changing the feed starts a fresh baseline.
 std::string ledgerPath(const OpdsServer& server) {
   char path[48];
   const uint32_t id = static_cast<uint32_t>(OpdsSeenLedger::hashKey(server.url + '|' + server.syncFeed));
@@ -36,7 +38,6 @@ std::string ledgerPath(const OpdsServer& server) {
   return path;
 }
 
-// The entry id is the stable identity; fall back to the download link.
 std::string entryKey(const OpdsEntry& entry) { return entry.id.empty() ? entry.href : entry.id; }
 
 bool heapFitsTls() {
@@ -53,8 +54,7 @@ class DeviceBackend final : public Backend {
 
   Page fetchPage(const std::string& url) override {
     Page page;
-    // The parser (and its entries) is freed on return, before TLS takes the heap for downloads.
-    OpdsParser parser;
+    OpdsParser parser;  // freed on return, before downloads take the heap for TLS
     {
       OpdsParserStream stream{parser};
       if (!HttpDownloader::fetchUrl(url, stream, server.username, server.password)) {
@@ -129,6 +129,25 @@ class DeviceBackend final : public Backend {
   const std::string ledgerFile;
 };
 
+bool joinSavedWifi() {
+  if (WiFi.status() == WL_CONNECTED) return true;
+  const auto credential = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
+  if (!credential) return false;
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(credential->ssid.c_str(), credential->password.c_str());
+  const unsigned long deadlineMs = millis() + WIFI_TIMEOUT_MS;
+  while (WiFi.status() != WL_CONNECTED && millis() < deadlineMs) delay(100);
+  return WiFi.status() == WL_CONNECTED;
+}
+
+void writeResultLog(const Summary& summary) {
+  char line[96];
+  snprintf(line, sizeof(line), "t=%lld servers=%u downloaded=%u failed=%u auth_failed=%u wifi_failed=%u\n",
+           static_cast<long long>(time(nullptr)), summary.servers, summary.downloaded, summary.failed,
+           summary.authFailed ? 1u : 0u, summary.wifiFailed ? 1u : 0u);
+  Storage.writeFile(RESULT_LOG_PATH, String(line));
+}
+
 }  // namespace
 
 bool enabled() {
@@ -146,21 +165,17 @@ uint32_t intervalSeconds() {
 #endif
 }
 
-bool joinSavedWifi(const uint32_t timeoutMs) {
-  if (WiFi.status() == WL_CONNECTED) return true;
-  const auto cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
-  if (!cred) return false;
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(cred->ssid.c_str(), cred->password.c_str());
-  const unsigned long deadline = millis() + timeoutMs;
-  while (WiFi.status() != WL_CONNECTED && millis() < deadline) delay(100);
-  return WiFi.status() == WL_CONNECTED;
-}
-
-Summary runAll(const unsigned long deadlineMs) {
+Summary syncNow() {
   Summary summary;
-  // Copy: a store reload mid-run must not invalidate the server being synced.
-  const std::vector<OpdsServer> servers = OPDS_STORE.getServers();
+  if (!joinSavedWifi()) {
+    summary.wifiFailed = true;
+    writeResultLog(summary);
+    return summary;
+  }
+
+  trustedtime::startSync();
+  const unsigned long deadlineMs = millis() + RUN_DEADLINE_MS;
+  const std::vector<OpdsServer> servers = OPDS_STORE.getServers();  // copy: the store can reload mid-run
   for (const auto& server : servers) {
     if (server.syncFeed.empty() || server.url.empty()) continue;
     summary.servers++;
@@ -169,15 +184,8 @@ Summary runAll(const unsigned long deadlineMs) {
     syncFeed(backend, UrlUtils::buildUrl(server.url, server.syncFeed), summary);
   }
   if (summary.downloaded > 0) library::markLibraryIndexDirty();
+  writeResultLog(summary);
   return summary;
-}
-
-void writeLog(const Summary& summary) {
-  char line[96];
-  snprintf(line, sizeof(line), "t=%lld servers=%u downloaded=%u failed=%u auth_failed=%u\n",
-           static_cast<long long>(time(nullptr)), summary.servers, summary.downloaded, summary.failed,
-           summary.authFailed ? 1u : 0u);
-  Storage.writeFile(LOG_PATH, String(line));
 }
 
 }  // namespace opdssync

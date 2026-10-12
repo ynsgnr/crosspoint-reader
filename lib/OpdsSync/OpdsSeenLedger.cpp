@@ -57,13 +57,12 @@ bool OpdsSeenLedger::deserialize(const uint8_t* data, const size_t len) {
 
 OpdsPagePlan planOpdsPage(const std::vector<std::string>& keys, const OpdsSeenLedger& ledger, const size_t limit) {
   OpdsPagePlan plan;
+  size_t unseen = 0;
   for (size_t i = 0; i < keys.size(); i++) {
     if (ledger.contains(keys[i])) continue;
+    unseen++;
     if (plan.fetch.size() < limit) plan.fetch.push_back(i);
   }
-  // Counted over the whole page, not just the capped selection: a page with
-  // more unseen books than the limit still has unseen books.
-  plan.allSeen =
-      !keys.empty() && std::all_of(keys.begin(), keys.end(), [&](const std::string& k) { return ledger.contains(k); });
+  plan.allSeen = !keys.empty() && unseen == 0;
   return plan;
 }
