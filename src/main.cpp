@@ -341,8 +341,10 @@ constexpr unsigned long OPDS_SYNC_WIFI_TIMEOUT_MS = 15000;
 constexpr unsigned long OPDS_SYNC_DEADLINE_MS = 180000;
 
 static void armOpdsSyncWake() {
+#ifndef SIMULATOR  // the simulator HAL has no deep sleep or timer wake
   const bool allowed = powerManager.getBatteryPercentage() >= OPDS_SYNC_MIN_BATTERY_PERCENT;
   powerManager.setTimerWakeSeconds(allowed ? opdssync::intervalSeconds() : 0);
+#endif
 }
 
 // Enter deep sleep mode
@@ -394,6 +396,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   powerManager.startDeepSleep(gpio);
 }
 
+#ifndef SIMULATOR
 // Timer wake: sync with the display never initialized, so the retained sleep
 // frame stays on the panel, then go straight back to sleep.
 static void syncOnTimerWakeAndSleep() {
@@ -419,6 +422,7 @@ static void syncOnTimerWakeAndSleep() {
   armOpdsSyncWake();
   powerManager.startDeepSleep(gpio);
 }
+#endif
 
 void setupDisplayAndFonts(bool seamless = false) {
 #if !FREEINK_MCU_C3
@@ -566,10 +570,12 @@ void setup() {
   // timestamps, loan-expiry checks).
   trustedtime::init();
 
+#ifndef SIMULATOR
   if (wakeupReason == HalGPIO::WakeupReason::Timer) {
     syncOnTimerWakeAndSleep();  // does not return on real hardware
     return;
   }
+#endif
 
   // Brightness and warmth are always restored. A normal wake starts with the
   // light off unless Restore Light on Wake is enabled; silent maintenance
