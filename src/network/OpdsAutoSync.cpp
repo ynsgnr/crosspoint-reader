@@ -9,7 +9,9 @@
 #include <OpdsStream.h>
 #include <WiFi.h>
 
+#include <algorithm>
 #include <ctime>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -138,8 +140,9 @@ void syncServer(const OpdsServer& server, const unsigned long deadlineMs, Summar
       } else {
         const OpdsPagePlan plan = planOpdsPage(keys, ledger, budget);
         allSeen = plan.allSeen;
-        for (const size_t i : plan.fetch)
-          pending.push_back({keys[i], books[i]->title, books[i]->author, books[i]->href});
+        std::transform(plan.fetch.begin(), plan.fetch.end(), std::back_inserter(pending), [&](const size_t i) {
+          return Pending{keys[i], books[i]->title, books[i]->author, books[i]->href};
+        });
       }
       nextUrl = parser.getNextPageUrl();
     }  // Parser (and its entries) freed before TLS takes the heap for downloads.
@@ -186,10 +189,8 @@ void syncServer(const OpdsServer& server, const unsigned long deadlineMs, Summar
 
 bool enabled() {
   if (SETTINGS.opdsSyncHours == 0) return false;
-  for (const auto& server : OPDS_STORE.getServers()) {
-    if (!server.syncFeed.empty()) return true;
-  }
-  return false;
+  const auto& servers = OPDS_STORE.getServers();
+  return std::any_of(servers.begin(), servers.end(), [](const OpdsServer& s) { return !s.syncFeed.empty(); });
 }
 
 uint32_t intervalSeconds() {
