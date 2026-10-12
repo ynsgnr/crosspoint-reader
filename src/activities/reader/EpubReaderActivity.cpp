@@ -23,6 +23,7 @@
 #include <limits>
 
 #include "../../util/BookmarkFile.h"
+#include "BleInput.h"
 #include "BookmarkEntry.h"
 #include "ClipSelectionActivity.h"
 #include "ClippingStore.h"
@@ -254,6 +255,8 @@ bool EpubReaderActivity::loadBook() {
   });
 
   epub->setupCacheDir();
+
+  statusBarBleConnected = BleHid.isConnected();
 
   HalFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
@@ -568,6 +571,16 @@ void EpubReaderActivity::loop() {
     applyOrientation(SETTINGS.orientation);
     requestUpdate();
     return;
+  }
+
+  // Swap the "connecting" status bar title back to the book title as soon as the remote links.
+  if (SETTINGS.bluetoothEnabled && section && renderer.hasFrameBuffer() && !RenderLock::peek()) {
+    const bool connected = BleHid.isConnected();
+    if (connected != statusBarBleConnected) {
+      statusBarBleConnected = connected;
+      renderStatusBar();
+      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+    }
   }
 
   constexpr unsigned long IDLE_PREWARM_DEBOUNCE_MS = 400;
@@ -2289,8 +2302,10 @@ void EpubReaderActivity::renderStatusBar() const {
     title = epub ? epub->getTitle() : "";
   }
 
+  if (SETTINGS.bluetoothEnabled && !BleHid.isConnected()) title = tr(STR_BT_CONNECTING_POPUP);
+
   GUI.drawStatusBar(renderer, bookProgress, currentPage, pageCount, title, 0, textYOffset, true, currentPageBookmarked,
-                    section ? section->isBuilding() : false);
+                    section ? section->isBuilding() : false, BleHid.isConnected());
 }
 
 // ---------------------------------------------------------------------------
