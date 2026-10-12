@@ -131,6 +131,7 @@ class DeviceBackend final : public Backend {
 
 bool joinSavedWifi() {
   if (WiFi.status() == WL_CONNECTED) return true;
+  WIFI_STORE.loadFromFile();  // only the Wi-Fi selection screen loads it, and a timer wake never opens that
   const auto credential = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
   if (!credential) return false;
   WiFi.persistent(false);
