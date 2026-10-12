@@ -121,12 +121,6 @@ class EpubReaderActivity final : public ReaderActivity {
   uint16_t buildViewportHeight = 0;
   bool partialRebuildStartFailed = false;
 
-  // BLE connection state the status bar last rendered with; loop() watches for
-  // a flip and redraws the bar so the "BT connecting" placeholder swaps back
-  // to the chapter/book title the moment the connection completes (and
-  // returns on disconnect) instead of waiting for the next page turn.
-  bool statusBarBleConnected = false;
-
   int lastSavedSpineIndex = -1;
   int lastSavedPage = -1;
   int lastSavedPageCount = -1;
@@ -137,23 +131,11 @@ class EpubReaderActivity final : public ReaderActivity {
   static constexpr size_t BACKGROUND_BUILD_MIN_MAX_ALLOC = 16 * 1024;
   // Requires the render lock; heap admission is checked separately by the build tick.
   bool backgroundBuildWanted() const;
-  // Gate for a background build tick: true when the heap can take parse allocations.
-  // When BLE is what's squeezing the heap, sheds it (the lifecycle then restarts it
-  // behind its gates) instead of stalling the build forever below the floors.
   bool buildTickHeapGate();
   bool buildHeapPaused = false;
-  // Heap floor for rendering a page at all. Page deserialization (TextBlock word
-  // vectors/strings) and glyph caching allocate through throwing paths that abort()
-  // on OOM; below this floor render() lends the framebuffer (and the restore path
-  // sheds BLE if reallocation fails) before touching the page.
+  // BLE state the status bar last drew; loop() redraws the bar when it flips.
+  bool statusBarBleConnected = false;
   static constexpr size_t RENDER_MIN_FREE_HEAP = 24 * 1024;
-  // Heap floor for entering a section build. The layout code allocates freely (line-break DP
-  // arrays sized by word count, CSS rule lookups, glyph buffers) and under -fno-exceptions an
-  // OOM there abort()s the firmware instead of failing cleanly -- so a starved heap must be
-  // handled *before* the build, not after. Field data: builds succeed at ~46 KB free with BLE
-  // resident; abort() observed at ~11 KB free. CSS styling already degrades below 48 KB
-  // (MIN_FREE_HEAP_FOR_CSS), so 40 KB trades a few early BLE teardowns for not crashing.
-  static constexpr size_t BUILD_MIN_FREE_HEAP = 40 * 1024;
   static constexpr int BUILD_WINDOW_AHEAD = 5;
   static constexpr int PARTIAL_REBUILD_START_MARGIN = 15;
   static constexpr int BUILD_POPUP_PAGE_THRESHOLD = 20;
