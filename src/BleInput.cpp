@@ -96,7 +96,7 @@ void showConnectingUntilLinked(const GfxRenderer& renderer, const MappedInputMan
   while (!BleHid.isConnected() && millis() < deadline) {
     BleHid.poll();
     input.update();
-    if (input.wasAnyPressed()) break;
+    if (input.getPressedFrontButton() >= 0) break;
     delay(50);
   }
   // Note: the caller must redraw to clear the popup. For grayscale reader pages the
