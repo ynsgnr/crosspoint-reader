@@ -5,7 +5,7 @@
 
 /**
  * Edit screen for a single OPDS server.
- * Shows Name, URL, Username, Password fields and a Delete option.
+ * Shows Name, URL, Username, Password, Auto-Sync Feed fields, Sync Now and a Delete option.
  * Used for both adding new servers and editing existing ones.
  */
 class OpdsSettingsActivity final : public UiListActivity {
@@ -32,12 +32,13 @@ class OpdsSettingsActivity final : public UiListActivity {
   int getMenuItemCount() const;
   void handleSelection();
   bool saveServer();
+  void syncNow();
 
-  // Row storage: at most 5 rows (Name/URL/Username/Password + Delete, see
+  // Row storage: at most 5 rows (Name/URL/Username/Password/Sync feed + Sync now + Delete, see
   // BASE_ITEMS in the .cpp), so a fixed-capacity array avoids any heap
   // allocation for the row list. Labels are set once in the constructor
   // (they never change); buildScreen() only refreshes the value pointers,
   // which already point at editServer's own fields (no new strings built).
-  static constexpr int MAX_MENU_ITEMS = 5;
+  static constexpr int MAX_MENU_ITEMS = 7;
   freeink::ui::ListItem fieldRowItems[MAX_MENU_ITEMS]{};
 };

@@ -3,18 +3,25 @@
 #include <GfxRenderer.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <WiFi.h>
 
 #include "MappedInputManager.h"
 #include "OpdsServerStore.h"
+#include "SilentRestart.h"
 #include "activities/util/KeyboardEntryActivity.h"
 #include "components/UITheme.h"
+#include "network/OpdsAutoSync.h"
 
 namespace fui = freeink::ui;
 
 namespace {
-// Editable fields: Name, URL, Username, Password.
-// Existing servers also show a Delete option (BASE_ITEMS + 1).
-constexpr int BASE_ITEMS = 4;
+// Editable fields: Name, URL, Username, Password, Auto-Sync Feed.
+// Existing servers also show Sync Now and Delete (BASE_ITEMS, BASE_ITEMS + 1).
+constexpr int BASE_ITEMS = 5;
+constexpr int SYNC_NOW_ITEM = BASE_ITEMS;
+constexpr int DELETE_ITEM = BASE_ITEMS + 1;
+constexpr unsigned long SYNC_WIFI_TIMEOUT_MS = 15000;
+constexpr unsigned long SYNC_DEADLINE_MS = 180000;
 }  // namespace
 
 OpdsSettingsActivity::OpdsSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
@@ -23,17 +30,19 @@ OpdsSettingsActivity::OpdsSettingsActivity(GfxRenderer& renderer, MappedInputMan
   // Labels never change (unlike the values, which track editServer's fields
   // live), so they're set once here rather than every buildScreen() call.
   static constexpr StrId fieldNames[BASE_ITEMS] = {StrId::STR_SERVER_NAME, StrId::STR_OPDS_SERVER_URL,
-                                                   StrId::STR_USERNAME, StrId::STR_PASSWORD};
+                                                   StrId::STR_USERNAME, StrId::STR_PASSWORD, StrId::STR_OPDS_SYNC_FEED};
   for (int i = 0; i < BASE_ITEMS; i++) {
     fieldRowItems[i].label = I18N.get(fieldNames[i]);
     fieldRowItems[i].actionValue = static_cast<int16_t>(i);
   }
-  fieldRowItems[BASE_ITEMS].label = tr(STR_DELETE_SERVER);
-  fieldRowItems[BASE_ITEMS].actionValue = static_cast<int16_t>(BASE_ITEMS);
+  fieldRowItems[SYNC_NOW_ITEM].label = tr(STR_SYNC_NOW);
+  fieldRowItems[SYNC_NOW_ITEM].actionValue = static_cast<int16_t>(SYNC_NOW_ITEM);
+  fieldRowItems[DELETE_ITEM].label = tr(STR_DELETE_SERVER);
+  fieldRowItems[DELETE_ITEM].actionValue = static_cast<int16_t>(DELETE_ITEM);
 }
 
 int OpdsSettingsActivity::getMenuItemCount() const {
-  return isNewServer ? BASE_ITEMS : BASE_ITEMS + 1;  // +1 for Delete
+  return isNewServer ? BASE_ITEMS : BASE_ITEMS + 2;  // + Sync Now and Delete
 }
 
 void OpdsSettingsActivity::onEnter() {
@@ -94,6 +103,22 @@ bool OpdsSettingsActivity::saveServer() {
   return success;
 }
 
+void OpdsSettingsActivity::syncNow() {
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  char message[64];
+  if (opdssync::joinSavedWifi(SYNC_WIFI_TIMEOUT_MS)) {
+    const auto summary = opdssync::runAll(millis() + SYNC_DEADLINE_MS);
+    opdssync::writeLog(summary);
+    snprintf(message, sizeof(message), "%s: %u", tr(STR_SYNC_RESULT), summary.downloaded);
+  } else {
+    snprintf(message, sizeof(message), "%s", tr(STR_SYNC_NO_WIFI));
+  }
+  GUI.drawPopup(renderer, message);
+  delay(2500);
+  // A TLS session leaves the heap fragmented; come back to Settings on a fresh one.
+  silentRestartToSettings();
+}
+
 void OpdsSettingsActivity::handleSelection() {
   // Each field edit is saved immediately so partially configured servers
   // survive navigation and power-loss scenarios.
@@ -150,7 +175,22 @@ void OpdsSettingsActivity::handleSelection() {
     startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_PASSWORD),
                                                                    editServer.password, 63, InputType::Text),
                            handler);
-  } else if (nav.selected == 4 && !isNewServer) {
+  } else if (nav.selected == 4) {
+    // Auto-sync feed, relative to the server URL or a full URL; empty turns auto-sync off
+    auto handler = [this](const ActivityResult& result) {
+      if (!result.isCancelled) {
+        const auto& kb = std::get<KeyboardResult>(result.data);
+        editServer.syncFeed = kb.text;
+        saveServer();
+        requestUpdate();
+      }
+    };
+    startActivityForResult(std::make_unique<KeyboardEntryActivity>(renderer, mappedInput, tr(STR_OPDS_SYNC_FEED),
+                                                                   editServer.syncFeed, 127, InputType::Url),
+                           handler);
+  } else if (nav.selected == SYNC_NOW_ITEM && !isNewServer) {
+    syncNow();
+  } else if (nav.selected == DELETE_ITEM && !isNewServer) {
     // Delete flow is only available for existing servers.
     if (!OPDS_STORE.removeServer(static_cast<size_t>(serverIndex))) {
       LOG_ERR("OPS", "Failed to remove OPDS server at index %d", serverIndex);
@@ -186,6 +226,7 @@ void OpdsSettingsActivity::buildScreen(UiScreen& screen) {
   fieldRowItems[1].value = editServer.url.empty() ? tr(STR_NOT_SET) : editServer.url.c_str();
   fieldRowItems[2].value = editServer.username.empty() ? tr(STR_NOT_SET) : editServer.username.c_str();
   fieldRowItems[3].value = editServer.password.empty() ? tr(STR_NOT_SET) : "******";
+  fieldRowItems[4].value = editServer.syncFeed.empty() ? tr(STR_NOT_SET) : editServer.syncFeed.c_str();
 
   fui::ListProps props;
   props.items = fieldRowItems;

@@ -37,6 +37,7 @@
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#include "network/OpdsAutoSync.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/PluginEvents.h"
@@ -333,6 +334,17 @@ static void deliverSleepPluginEvents() {
   }
 }
 
+// Timer wakes for OPDS auto-sync. Low battery stops them so the reader keeps its
+// charge for reading; the next normal sleep re-arms once it recovers.
+constexpr uint16_t OPDS_SYNC_MIN_BATTERY_PERCENT = 20;
+constexpr unsigned long OPDS_SYNC_WIFI_TIMEOUT_MS = 15000;
+constexpr unsigned long OPDS_SYNC_DEADLINE_MS = 180000;
+
+static void armOpdsSyncWake() {
+  const bool allowed = powerManager.getBatteryPercentage() >= OPDS_SYNC_MIN_BATTERY_PERCENT;
+  powerManager.setTimerWakeSeconds(allowed ? opdssync::intervalSeconds() : 0);
+}
+
 // Enter deep sleep mode
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
@@ -378,6 +390,33 @@ void enterDeepSleep(bool fromTimeout = false) {
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
+  armOpdsSyncWake();
+  powerManager.startDeepSleep(gpio);
+}
+
+// Timer wake: sync with the display never initialized, so the retained sleep
+// frame stays on the panel, then go straight back to sleep.
+static void syncOnTimerWakeAndSleep() {
+  HalPowerManager::Lock powerLock;
+  opdssync::Summary summary;
+  if (opdssync::enabled() && powerManager.getBatteryPercentage() >= OPDS_SYNC_MIN_BATTERY_PERCENT) {
+    if (opdssync::joinSavedWifi(OPDS_SYNC_WIFI_TIMEOUT_MS)) {
+      trustedtime::startSync();
+      summary = opdssync::runAll(millis() + OPDS_SYNC_DEADLINE_MS);
+    } else {
+      summary.failed = 1;
+      LOG_INF("MAIN", "Timer wake: WiFi join failed");
+    }
+    opdssync::writeLog(summary);
+  }
+  if (WiFi.getMode() != WIFI_MODE_NULL) {
+    WiFi.disconnect(true);
+    WiFi.mode(WIFI_OFF);
+  }
+  trustedtime::note();
+  halTiltSensor.deepSleep();
+  Storage.prepareForDeepSleep();
+  armOpdsSyncWake();
   powerManager.startDeepSleep(gpio);
 }
 
@@ -527,6 +566,11 @@ void setup() {
   // timestamps, loan-expiry checks).
   trustedtime::init();
 
+  if (wakeupReason == HalGPIO::WakeupReason::Timer) {
+    syncOnTimerWakeAndSleep();  // does not return on real hardware
+    return;
+  }
+
   // Brightness and warmth are always restored. A normal wake starts with the
   // light off unless Restore Light on Wake is enabled; silent maintenance
   // reboots replay the live state captured at restart, so they neither go dark
@@ -542,6 +586,7 @@ void setup() {
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         Storage.prepareForDeepSleep();
+        armOpdsSyncWake();
         powerManager.startDeepSleep(gpio);
       }
       wakePowerReleasePending = true;
@@ -561,6 +606,7 @@ void setup() {
       break;
 #else
       Storage.prepareForDeepSleep();
+      armOpdsSyncWake();
       powerManager.startDeepSleep(gpio);
       break;
 #endif

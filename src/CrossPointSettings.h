@@ -316,6 +316,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // 2=Title). See OpdsFilenameFormat. Persisted via a category-less SettingInfo::Enum,
   // edited from the OPDS server list; hidden from the on-device Settings screen.
   uint8_t opdsFilenameFormat = 0;
+  // OPDS auto-sync period in hours; 0 = off. A server syncs only when it also has a feed set.
+  uint8_t opdsSyncHours = 0;
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press page turn button behavior

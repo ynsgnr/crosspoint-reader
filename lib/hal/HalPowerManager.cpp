@@ -146,6 +146,12 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   freeink::metalio::powerOff();
 #endif
 
+#if SOC_PM_SUPPORT_EXT1_WAKEUP
+  if (timerWakeSeconds > 0) {
+    esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(timerWakeSeconds) * 1000000ULL);
+  }
+#endif
+
   // Waits for the power button to be physically released (so holding it doesn't
   // immediately wake the device again), then arms the wake source and sleeps.
   freeink::PowerManager::deepSleepUntilPowerButton();
