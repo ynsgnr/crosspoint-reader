@@ -161,16 +161,9 @@ bool hasSyncFeed() {
   return std::any_of(servers.begin(), servers.end(), [](const OpdsServer& s) { return !s.syncFeed.empty(); });
 }
 
-bool enabled() { return SETTINGS.opdsSyncHours != 0 && hasSyncFeed(); }
+bool enabled() { return SETTINGS.opdsSyncMinutes != 0 && hasSyncFeed(); }
 
-uint32_t intervalSeconds() {
-  if (!enabled()) return 0;
-#ifdef OPDS_SYNC_TEST_MINUTES
-  return static_cast<uint32_t>(SETTINGS.opdsSyncHours) * 60;  // bench builds: hours become minutes
-#else
-  return static_cast<uint32_t>(SETTINGS.opdsSyncHours) * 3600;
-#endif
-}
+uint32_t intervalSeconds() { return enabled() ? static_cast<uint32_t>(SETTINGS.opdsSyncMinutes) * 60 : 0; }
 
 Summary syncNow() {
   Summary summary;
