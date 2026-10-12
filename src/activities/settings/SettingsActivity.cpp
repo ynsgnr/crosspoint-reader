@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "AboutActivity.h"
+#include "BluetoothSettingsActivity.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "ClockSettingsActivity.h"
@@ -96,6 +97,9 @@ void SettingsActivity::rebuildSettingsLists() {
     controlsSettings.insert(controlsSettings.begin(),
                             SettingInfo::Action(StrId::STR_HOME_BUTTON, SettingAction::HomeButton));
   }
+#if FREEINK_CAP_BLE_HID_HOST
+  controlsSettings.push_back(SettingInfo::Action(StrId::STR_BLUETOOTH, SettingAction::Bluetooth));
+#endif
   systemSettings.push_back(SettingInfo::Action(StrId::STR_WIFI_NETWORKS, SettingAction::Network));
   // Clock configuration only exists where the RTC probe found hardware; on
   // clockless boards there is nothing to set.
@@ -404,6 +408,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::SdFirmwareUpdate:
         startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::Bluetooth:
+        startActivityForResult(std::make_unique<BluetoothSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::DownloadFonts:
         startActivityForResult(std::make_unique<FontDownloadActivity>(renderer, mappedInput),
