@@ -357,7 +357,7 @@ static bool sleepImageRefreshWanted() {
          (mode == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM && !APP_STATE.lastSleepFromReader);
 }
 
-static void armOpdsSyncWake() {
+static void armSyncWake() {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP  // S3 boards only: the C3 Xteink boards cut battery power instead of sleeping
   const bool wanted = opdssync::hasSyncFeed() || sleepImageRefreshWanted();
   const uint32_t seconds = wanted && batteryAllowsOpdsSync() ? static_cast<uint32_t>(SETTINGS.opdsSyncMinutes) * 60 : 0;
@@ -414,7 +414,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  armOpdsSyncWake();
+  armSyncWake();
   powerManager.startDeepSleep(gpio);
 }
 
@@ -478,7 +478,7 @@ static void syncOnTimerWakeAndSleep() {
   halTiltSensor.deepSleep();
   if (imageChanged) showSleepImage();
   Storage.prepareForDeepSleep();
-  armOpdsSyncWake();
+  armSyncWake();
   powerManager.startDeepSleep(gpio);
 }
 
@@ -649,7 +649,7 @@ void setup() {
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         Storage.prepareForDeepSleep();
-        armOpdsSyncWake();
+        armSyncWake();
         powerManager.startDeepSleep(gpio);
       }
       wakePowerReleasePending = true;
@@ -669,7 +669,7 @@ void setup() {
       break;
 #else
       Storage.prepareForDeepSleep();
-      armOpdsSyncWake();
+      armSyncWake();
       powerManager.startDeepSleep(gpio);
       break;
 #endif
