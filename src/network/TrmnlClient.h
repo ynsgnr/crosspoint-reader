@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-// TRMNL / LaraPaper device client: fetches the current screen into /sleep.bmp over an already connected Wi-Fi.
+// TRMNL / LaraPaper client: fetches the current screen into /sleep.bmp over a connected Wi-Fi.
 namespace trmnl {
 
 enum class Result { Failed, Unchanged, Changed };

@@ -22,8 +22,8 @@ std::string parseSetupToken(const std::string& json);
 // Adds https:// when no scheme is given and drops trailing slashes.
 std::string normalizeServerUrl(const std::string& url);
 
-// Seconds until the next wake: the larger of the user's minimum and the server's refresh rate, kept within
-// 5 minutes to 24 hours. 0 when both are 0.
+// Seconds until the next wake: the larger of the user's minimum and the server's refresh rate (limited to
+// 5 minutes..24 hours). 0 when both are 0.
 uint32_t nextWakeSeconds(uint32_t minimumMinutes, uint32_t serverSeconds);
 
 }  // namespace trmnl

@@ -60,7 +60,7 @@ bool getJson(const std::string& url, const pluginhttp::Headers& headers, std::st
   return true;
 }
 
-// LaraPaper hands out an access token to any device that announces its MAC address.
+// BYOS servers such as LaraPaper hand out an access token to a device that announces its MAC address.
 bool autoJoin(const std::string& server) {
   auto headers = deviceHeaders();
   if (SETTINGS.trmnlModelId[0]) headers.emplace_back("Model-Id", SETTINGS.trmnlModelId);
@@ -84,7 +84,7 @@ bool isBmp(const char* path) {
 
 bool configured() { return SETTINGS.trmnlServer[0] != '\0'; }
 
-uint32_t lastRefreshSeconds() { return loadState().refreshSeconds; }
+uint32_t lastRefreshSeconds() { return configured() ? loadState().refreshSeconds : 0; }
 
 Result refresh() {
   if (!configured() || !heapFitsTls()) return Result::Failed;

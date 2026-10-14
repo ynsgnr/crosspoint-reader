@@ -369,7 +369,6 @@ static void armSyncWake() {
 #endif
 }
 
-// Manual sleep: fetch the TRMNL screen so the sleep screen shows the current one.
 static void refreshTrmnlBeforeSleep() {
   if (!sleepImageRefreshWanted() || !trmnl::configured() || !batteryAllowsOpdsSync()) return;
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));

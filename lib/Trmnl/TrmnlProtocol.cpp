@@ -7,8 +7,8 @@
 namespace trmnl {
 namespace {
 
-constexpr uint32_t MIN_WAKE_SECONDS = 300;
-constexpr uint32_t MAX_WAKE_SECONDS = 86400;
+constexpr uint32_t MIN_SERVER_WAKE_SECONDS = 300;
+constexpr uint32_t MAX_SERVER_WAKE_SECONDS = 86400;
 
 bool isSuccessStatus(JsonVariantConst status) {
   if (status.isNull()) return true;
@@ -43,9 +43,9 @@ std::string normalizeServerUrl(const std::string& url) {
 }
 
 uint32_t nextWakeSeconds(const uint32_t minimumMinutes, const uint32_t serverSeconds) {
-  const uint32_t seconds = std::max(minimumMinutes * 60, serverSeconds);
-  if (seconds == 0) return 0;
-  return std::clamp(seconds, MIN_WAKE_SECONDS, MAX_WAKE_SECONDS);
+  const uint32_t serverWake =
+      serverSeconds == 0 ? 0 : std::clamp(serverSeconds, MIN_SERVER_WAKE_SECONDS, MAX_SERVER_WAKE_SECONDS);
+  return std::max(minimumMinutes * 60, serverWake);
 }
 
 }  // namespace trmnl

@@ -48,8 +48,9 @@ TEST(TrmnlNextWake, TakesTheLargerOfMinimumAndServer) {
   EXPECT_EQ(nextWakeSeconds(20, 0), 1200u);
 }
 
-TEST(TrmnlNextWake, ClampsAndTurnsOff) {
+TEST(TrmnlNextWake, LimitsServerRateAndTurnsOff) {
   EXPECT_EQ(nextWakeSeconds(0, 0), 0u);
   EXPECT_EQ(nextWakeSeconds(0, 30), 300u);
   EXPECT_EQ(nextWakeSeconds(0, 999999), 86400u);
+  EXPECT_EQ(nextWakeSeconds(1, 0), 60u);
 }
