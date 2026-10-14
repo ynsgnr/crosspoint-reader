@@ -457,6 +457,9 @@ static void showSleepImage() {
   const int y = bitmap.getHeight() < screenHeight ? (screenHeight - bitmap.getHeight()) / 2 : 0;
   renderer.clearScreen();
   renderer.drawBitmap(bitmap, x, y, screenWidth, screenHeight);
+  if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+    renderer.invertScreen();
+  }
   renderer.displayBuffer(HalDisplay::HALF_REFRESH);
   display.deepSleep();
 }
