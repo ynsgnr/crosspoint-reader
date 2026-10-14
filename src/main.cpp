@@ -18,6 +18,7 @@
 #include <ImageFingerprint.h>
 #include <Logging.h>
 #include <SPI.h>
+#include <TrmnlProtocol.h>
 #include <TrustedTime.h>
 #include <VectorFontSupport.h>
 #include <WiFi.h>
@@ -43,6 +44,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OpdsAutoSync.h"
+#include "network/TrmnlClient.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/PluginEvents.h"
@@ -351,7 +353,7 @@ static bool batteryAllowsOpdsSync() { return powerManager.getBatteryPercentage()
 
 // True when the next sleep screen would show the plugin-fetched /sleep.bmp, so a timer wake can refresh it.
 static bool sleepImageRefreshWanted() {
-  if (!pluginevents::anySubscriber(pluginevents::Event::SleepEnter)) return false;
+  if (!trmnl::configured() && !pluginevents::anySubscriber(pluginevents::Event::SleepEnter)) return false;
   const auto mode = SETTINGS.sleepScreen;
   return mode == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM ||
          (mode == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM && !APP_STATE.lastSleepFromReader);
@@ -360,9 +362,18 @@ static bool sleepImageRefreshWanted() {
 static void armSyncWake() {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP  // S3 boards only: the C3 Xteink boards cut battery power instead of sleeping
   const bool wanted = opdssync::hasSyncFeed() || sleepImageRefreshWanted();
-  const uint32_t seconds = wanted && batteryAllowsOpdsSync() ? static_cast<uint32_t>(SETTINGS.opdsSyncMinutes) * 60 : 0;
+  const uint32_t seconds = wanted && batteryAllowsOpdsSync()
+                               ? trmnl::nextWakeSeconds(SETTINGS.opdsSyncMinutes, trmnl::lastRefreshSeconds())
+                               : 0;
   if (seconds > 0) esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000ULL);
 #endif
+}
+
+// Manual sleep: fetch the TRMNL screen so the sleep screen shows the current one.
+static void refreshTrmnlBeforeSleep() {
+  if (!sleepImageRefreshWanted() || !trmnl::configured() || !batteryAllowsOpdsSync()) return;
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  if (WiFi.status() == WL_CONNECTED || opdssync::joinWifi()) trmnl::refresh();
 }
 
 // Enter deep sleep mode
@@ -374,6 +385,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   // floor now so a later cold boot resumes from it.
   trustedtime::note();
 
+  refreshTrmnlBeforeSleep();
   deliverSleepPluginEvents();
 
   const bool isQuickResumeSleep =
@@ -464,10 +476,14 @@ static void syncOnTimerWakeAndSleep() {
       online = opdssync::joinWifi();
     }
     if (wantImage && online) {
-      const uint32_t before = sleepImageFingerprint();
-      pluginevents::emit(pluginevents::Event::SleepEnter, nullptr, 0);
-      pluginevents::drain(nullptr);
-      imageChanged = sleepImageFingerprint() != before;
+      if (trmnl::configured()) {
+        imageChanged = trmnl::refresh() == trmnl::Result::Changed;
+      } else {
+        const uint32_t before = sleepImageFingerprint();
+        pluginevents::emit(pluginevents::Event::SleepEnter, nullptr, 0);
+        pluginevents::drain(nullptr);
+        imageChanged = sleepImageFingerprint() != before;
+      }
     }
   }
   if (WiFi.getMode() != WIFI_MODE_NULL) {
