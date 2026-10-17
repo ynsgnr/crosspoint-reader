@@ -53,5 +53,5 @@ class BleButtonMapActivity final : public UiListActivity {
   void endCapture();
   // Bind the captured key to the chosen logical button in SETTINGS.bleKeyMap and
   // persist. Returns false when the table is full and the key is new.
-  bool assignKey(MappedInputManager::Button button, uint8_t kind, uint8_t value);
+  bool assignKey(MappedInputManager::Button button, uint8_t kind, uint32_t value);
 };

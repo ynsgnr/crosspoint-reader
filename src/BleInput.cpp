@@ -37,10 +37,10 @@ void stop() {
   BleHid.end();
 }
 
-bool encodeKey(const freeink::KeyEvent& ev, uint8_t& kind, uint8_t& value) {
+bool encodeKey(const freeink::KeyEvent& ev, uint8_t& kind, uint32_t& value) {
   if (ev.special != freeink::SpecialKey::None) {
     kind = 0;
-    value = static_cast<uint8_t>(ev.special);
+    value = static_cast<uint32_t>(ev.special);
     return true;
   }
   if (ev.keycode != 0) {
@@ -104,10 +104,15 @@ void showConnectingUntilLinked(const GfxRenderer& renderer, const MappedInputMan
   // partial refresh ghosts badly over the BW popup (see Activity::requestGhostCleanup).
 }
 
-void describeKey(uint8_t kind, uint8_t value, char* out, size_t outLen) {
+void describeKey(uint8_t kind, uint32_t value, char* out, size_t outLen) {
   if (!out || outLen == 0) return;
+  if (kind == kRawButtonKind) {
+    snprintf(out, outLen, "Button %u.%u.%u", static_cast<unsigned>(value >> 16 & 0xFF),
+             static_cast<unsigned>(value >> 8 & 0xFF), static_cast<unsigned>(value & 0xFF));
+    return;
+  }
   if (kind == 0) {
-    const char* name = specialName(value);
+    const char* name = specialName(static_cast<uint8_t>(value));
     if (name) {
       strncpy(out, name, outLen - 1);
       out[outLen - 1] = '\0';

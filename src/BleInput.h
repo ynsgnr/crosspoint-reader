@@ -54,11 +54,15 @@ void stop();
 // Encode a decoded key event into the stable (kind, value) identity used by the
 // settings map. kind: 0 = SpecialKey, 1 = HID usage. Returns false when the event
 // carries no usable identity (no special key and no usage code).
-bool encodeKey(const freeink::KeyEvent& ev, uint8_t& kind, uint8_t& value);
+bool encodeKey(const freeink::KeyEvent& ev, uint8_t& kind, uint32_t& value);
+
+// Kind of a key identified by its report bytes (RawButtonEvent::code()). It tells apart buttons the
+// key decode folds together, such as a scroll wheel's up, down and click.
+inline constexpr uint8_t kRawButtonKind = 2;
 
 // Human-readable name for a stored (kind, value) identity, for the mapping UI.
 // Writes a null-terminated string into out (e.g. "Page Down", "Key 0x4B").
-void describeKey(uint8_t kind, uint8_t value, char* out, size_t outLen);
+void describeKey(uint8_t kind, uint32_t value, char* out, size_t outLen);
 
 // Draw a "BT Connecting..." popup and pump the BLE host until the bonded remote
 // links, the user presses a button to dismiss, or a timeout. No-op if BLE isn't

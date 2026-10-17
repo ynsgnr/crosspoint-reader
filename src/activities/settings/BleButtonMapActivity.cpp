@@ -78,7 +78,8 @@ void BleButtonMapActivity::endCapture() {
   requestUpdate();
 }
 
-bool BleButtonMapActivity::assignKey(const MappedInputManager::Button button, const uint8_t kind, const uint8_t value) {
+bool BleButtonMapActivity::assignKey(const MappedInputManager::Button button, const uint8_t kind,
+                                     const uint32_t value) {
   const uint8_t btn = static_cast<uint8_t>(button);
   // Mutated via std::replace_if below and through `slot`; cppcheck's CI parse
   // (no include paths) can't see the writes and suggests const.
@@ -124,10 +125,10 @@ bool BleButtonMapActivity::handleCustomInput() {
 
   // A capture is armed: the next remote key binds to the chosen function.
   uint8_t kind = 0xFF;
-  uint8_t value = 0;
+  uint32_t value = 0;
   if (mappedInput.takeCapturedBleKey(kind, value)) {
     if (!assignKey(kFunctions[captureTarget].button, kind, value)) {
-      LOG_ERR("BLEUI", "key map full; cannot bind kind=%u value=%u", kind, value);
+      LOG_ERR("BLEUI", "key map full; cannot bind kind=%u value=%u", kind, static_cast<unsigned>(value));
     }
     endCapture();
     return true;

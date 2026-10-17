@@ -242,7 +242,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       const uint8_t button = object["b"] | (uint8_t)0xFF;
       if (button >= MappedInputManager::kButtonCount) continue;
       bleKeyMap[slot].keyKind = object["k"] | (uint8_t)0xFF;
-      bleKeyMap[slot].keyValue = object["v"] | (uint8_t)0;
+      bleKeyMap[slot].keyValue = object["v"] | (uint32_t)0;
       bleKeyMap[slot].button = button;
       ++slot;
     }

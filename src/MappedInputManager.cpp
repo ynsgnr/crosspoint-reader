@@ -439,7 +439,7 @@ void MappedInputManager::setBleCaptureMode(const bool on) {
   }
 }
 
-bool MappedInputManager::takeCapturedBleKey(uint8_t& kind, uint8_t& value) {
+bool MappedInputManager::takeCapturedBleKey(uint8_t& kind, uint32_t& value) {
   if (!bleHasCaptured) return false;
   kind = bleCapturedKind;
   value = bleCapturedValue;
@@ -459,29 +459,38 @@ void MappedInputManager::pollBle() {
     if (bleReleaseEdge[i]) bleActivityThisFrame = true;
   }
 
+  // Report-level buttons first: they tell apart keys the decoded events share. The decoded
+  // events of the same presses are skipped once one was handled, so a press acts once.
+  bool handledRawButton = false;
+  freeink::RawButtonEvent raw;
+  while (BleHid.popRawButton(raw)) {
+    if (raw.pressed) handledRawButton |= handleBleKey(bleinput::kRawButtonKind, raw.code());
+  }
+
   freeink::KeyEvent ev;
   while (BleHid.popKey(ev)) {
     uint8_t kind = 0xFF;
-    uint8_t value = 0;
-    if (!bleinput::encodeKey(ev, kind, value)) continue;
-
-    if (bleCaptureMode) {
-      bleCapturedKind = kind;
-      bleCapturedValue = value;
-      bleHasCaptured = true;
-      continue;
-    }
-
-    // Resolve the key identity against the persisted mapping table.
-    for (const auto& e : SETTINGS.bleKeyMap) {
-      if (e.button == 0xFF || e.keyKind != kind || e.keyValue != value) continue;
-      if (e.button < kButtonCount) {
-        blePressEdge[e.button] = true;
-        bleActivityThisFrame = true;
-      }
-      break;
-    }
+    uint32_t value = 0;
+    if (!handledRawButton && bleinput::encodeKey(ev, kind, value)) handleBleKey(kind, value);
   }
+}
+
+// Captures the key while mapping, else resolves it against the persisted table. True when it was used.
+bool MappedInputManager::handleBleKey(const uint8_t kind, const uint32_t value) {
+  if (bleCaptureMode) {
+    bleCapturedKind = kind;
+    bleCapturedValue = value;
+    bleHasCaptured = true;
+    return true;
+  }
+  for (const auto& e : SETTINGS.bleKeyMap) {
+    if (e.button == 0xFF || e.keyKind != kind || e.keyValue != value) continue;
+    if (e.button >= kButtonCount) return false;
+    blePressEdge[e.button] = true;
+    bleActivityThisFrame = true;
+    return true;
+  }
+  return false;
 }
 
 void MappedInputManager::suppressNextRelease(const Button button) const {

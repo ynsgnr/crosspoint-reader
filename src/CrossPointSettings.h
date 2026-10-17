@@ -300,8 +300,8 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   // (some buttons emit more than one code). Each entry is 3 bytes.
   static constexpr uint8_t BLE_MAP_CAPACITY = 10;
   struct BleKeyMapEntry {
-    uint8_t keyKind = 0xFF;  // 0 = SpecialKey, 1 = HID usage code; 0xFF = empty slot
-    uint8_t keyValue = 0;    // (uint8_t)freeink::SpecialKey, or the raw HID usage id
+    uint8_t keyKind = 0xFF;  // 0 = SpecialKey, 1 = HID usage code, 2 = raw report button; 0xFF = empty slot
+    uint32_t keyValue = 0;   // (uint8_t)freeink::SpecialKey, the HID usage id, or RawButtonEvent::code()
     uint8_t button = 0xFF;   // (uint8_t)MappedInputManager::Button; 0xFF = unassigned
   };
   BleKeyMapEntry bleKeyMap[BLE_MAP_CAPACITY] = {};

@@ -138,7 +138,7 @@ class MappedInputManager {
   void setBleCaptureMode(bool on);
   // Pop a captured (kind, value) key identity grabbed while in capture mode.
   // Returns false when nothing has been captured since the last call.
-  bool takeCapturedBleKey(uint8_t& kind, uint8_t& value);
+  bool takeCapturedBleKey(uint8_t& kind, uint32_t& value);
 
   // True when the control axis is flipped relative to the physical buttons: always on touch boards,
   // or when button-only boards opt in, while the screen is currently INVERTED / LANDSCAPE_CCW.
@@ -168,7 +168,8 @@ class MappedInputManager {
   bool bleCaptureMode = false;
   bool bleHasCaptured = false;
   uint8_t bleCapturedKind = 0xFF;
-  uint8_t bleCapturedValue = 0;
+  uint32_t bleCapturedValue = 0;
+  bool handleBleKey(uint8_t kind, uint32_t value);
   // SDK edge classification (fui::edgeSwipe) + the shared decode/held-time
   // bookkeeping; the wrappers below give each edge its board meaning.
   bool wasEdgeSwipe(freeink::ui::ScreenEdge edge) const;
