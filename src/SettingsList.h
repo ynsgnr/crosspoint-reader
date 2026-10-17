@@ -447,6 +447,13 @@ inline std::vector<SettingInfo> getSettingsList(const SdCardFontRegistry* regist
                             "moveFinishedToReadFolder", StrId::STR_CAT_SYSTEM),
         SettingInfo::Value(StrId::STR_OPDS_AUTO_SYNC_MINUTES, &CrossPointSettings::opdsSyncMinutes, {0, 240, 10},
                            "opdsSyncMinutes", StrId::STR_CAT_SYSTEM),
+        SettingInfo::String(StrId::STR_TRMNL_SERVER, &SETTINGS.trmnlServer[0], sizeof(SETTINGS.trmnlServer),
+                            "trmnlServer", StrId::STR_TRMNL),
+        SettingInfo::String(StrId::STR_TRMNL_TOKEN, &SETTINGS.trmnlToken[0], sizeof(SETTINGS.trmnlToken), "trmnlToken",
+                            StrId::STR_TRMNL)
+            .withObfuscated(),
+        SettingInfo::String(StrId::STR_TRMNL_MODEL_ID, &SETTINGS.trmnlModelId[0], sizeof(SETTINGS.trmnlModelId),
+                            "trmnlModelId", StrId::STR_TRMNL),
 
         // OPDS download folder: persisted + web-exposed, but category-less so it
         // is hidden from the on-device Settings screen (edited via OPDS UI).

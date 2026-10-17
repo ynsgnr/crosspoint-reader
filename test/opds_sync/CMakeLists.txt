@@ -30,3 +30,18 @@ target_link_libraries(OpdsSyncCoreTest PRIVATE
 )
 
 gtest_discover_tests(OpdsSyncCoreTest)
+
+add_executable(ImageFingerprintTest
+  ImageFingerprintTest.cpp
+)
+
+target_include_directories(ImageFingerprintTest PRIVATE
+  ${REPO_ROOT}/lib/OpdsSync
+)
+
+target_link_libraries(ImageFingerprintTest PRIVATE
+  crosspoint_test_common
+  GTest::gtest_main
+)
+
+gtest_discover_tests(ImageFingerprintTest)

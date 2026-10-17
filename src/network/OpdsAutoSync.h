@@ -13,8 +13,8 @@ bool hasSyncFeed();
 // The interval is set and at least one server has a sync feed.
 bool enabled();
 
-// Seconds between timer wakes; 0 when sync is off.
-uint32_t intervalSeconds();
+// Joins the last used saved Wi-Fi network. True when connected.
+bool joinWifi();
 
 // Blocking. Joins the last used WiFi network, syncs every server that has a
 // feed, and records the result in /.crosspoint/opds_sync.txt.
