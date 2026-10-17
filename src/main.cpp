@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <BlePageTurner.h>
+#include <Bitmap.h>
 #include <BoardConfig.h>
 #include <Epub.h>
 #include <FontCacheManager.h>
@@ -15,8 +16,10 @@
 #include <HalSystem.h>
 #include <HalTiltSensor.h>
 #include <I18n.h>
+#include <ImageFingerprint.h>
 #include <Logging.h>
 #include <SPI.h>
+#include <TrmnlProtocol.h>
 #include <TrustedTime.h>
 #include <VectorFontSupport.h>
 #include <WiFi.h>
@@ -48,6 +51,7 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OpdsAutoSync.h"
+#include "network/TrmnlClient.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
 #include "util/PluginEvents.h"
@@ -425,11 +429,28 @@ constexpr uint16_t OPDS_SYNC_MIN_BATTERY_PERCENT = 20;
 
 static bool batteryAllowsOpdsSync() { return powerManager.getBatteryPercentage() >= OPDS_SYNC_MIN_BATTERY_PERCENT; }
 
-static void armOpdsSyncWake() {
+// True when the next sleep screen would show the plugin-fetched /sleep.bmp, so a timer wake can refresh it.
+static bool sleepImageRefreshWanted() {
+  if (!trmnl::configured() && !pluginevents::anySubscriber(pluginevents::Event::SleepEnter)) return false;
+  const auto mode = SETTINGS.sleepScreen;
+  return mode == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM ||
+         (mode == CrossPointSettings::SLEEP_SCREEN_MODE::COVER_CUSTOM && !APP_STATE.lastSleepFromReader);
+}
+
+static void armSyncWake() {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP  // S3 boards only: the C3 Xteink boards cut battery power instead of sleeping
-  const uint32_t seconds = batteryAllowsOpdsSync() ? opdssync::intervalSeconds() : 0;
+  const bool wanted = opdssync::hasSyncFeed() || sleepImageRefreshWanted();
+  const uint32_t seconds = wanted && batteryAllowsOpdsSync()
+                               ? trmnl::nextWakeSeconds(SETTINGS.opdsSyncMinutes, trmnl::lastRefreshSeconds())
+                               : 0;
   if (seconds > 0) esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000ULL);
 #endif
+}
+
+static void refreshTrmnlBeforeSleep() {
+  if (!sleepImageRefreshWanted() || !trmnl::configured() || !batteryAllowsOpdsSync()) return;
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  if (WiFi.status() == WL_CONNECTED || opdssync::joinWifi()) trmnl::refresh();
 }
 
 // Enter deep sleep mode
@@ -449,6 +470,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   const bool bluetoothStopped = bleturner::beforeSleep(2000);
 #endif
   if (!bluetoothStopped) LOG_ERR("SLP", "Bluetooth did not stop; deferring sleep-event delivery");
+  refreshTrmnlBeforeSleep();
   deliverSleepPluginEvents(bluetoothStopped);
 
   const bool isQuickResumeSleep =
@@ -488,22 +510,78 @@ void enterDeepSleep(bool fromTimeout = false) {
   Storage.prepareForDeepSleep();
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  armOpdsSyncWake();
+  armSyncWake();
   powerManager.startDeepSleep(gpio);
 }
 
-// The display is never initialized on a timer wake, so the retained sleep screen stays on the panel.
+void setupDisplayAndFonts(bool seamless);
+
+static uint32_t sleepImageFingerprint() {
+  HalFile file;
+  if (!Storage.openFileForRead("TRM", "/sleep.bmp", file)) return 0;
+  uint8_t buffer[512];
+  uint32_t hash = FNV1A32_SEED;
+  for (int n = file.read(buffer, sizeof(buffer)); n > 0; n = file.read(buffer, sizeof(buffer))) {
+    hash = fnv1a32(buffer, static_cast<size_t>(n), hash);
+  }
+  return hash;
+}
+
+// Draws /sleep.bmp as the sleep screen without the "Entering sleep" popup, then puts the panel to sleep.
+static void showSleepImage() {
+  HalFile file;
+  if (!Storage.openFileForRead("TRM", "/sleep.bmp", file)) return;
+  Bitmap bitmap(file, true);
+  if (bitmap.parseHeaders() != BmpReaderError::Ok) return;
+
+  setupDisplayAndFonts(true);
+  renderer.setOrientation(GfxRenderer::Orientation::Portrait);
+  const int screenWidth = renderer.getScreenWidth();
+  const int screenHeight = renderer.getScreenHeight();
+  const int x = bitmap.getWidth() < screenWidth ? (screenWidth - bitmap.getWidth()) / 2 : 0;
+  const int y = bitmap.getHeight() < screenHeight ? (screenHeight - bitmap.getHeight()) / 2 : 0;
+  renderer.clearScreen();
+  renderer.drawBitmap(bitmap, x, y, screenWidth, screenHeight);
+  if (SETTINGS.sleepScreenCoverFilter == CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::INVERTED_BLACK_AND_WHITE) {
+    renderer.invertScreen();
+  }
+  renderer.displayBuffer(HalDisplay::HALF_REFRESH);
+  display.deepSleep();
+}
+
+// Timer wake: sync books and fetch the sleep image over one Wi-Fi connection. The display stays off, so the
+// retained sleep screen is untouched, unless the fetched image changed.
 static void syncOnTimerWakeAndSleep() {
   HalPowerManager::Lock powerLock;
-  if (opdssync::enabled() && batteryAllowsOpdsSync()) opdssync::syncNow();
+  bool imageChanged = false;
+  if (batteryAllowsOpdsSync()) {
+    const bool wantImage = sleepImageRefreshWanted();
+    bool online = true;
+    if (opdssync::enabled()) {
+      online = !opdssync::syncNow().wifiFailed;
+    } else if (wantImage) {
+      online = opdssync::joinWifi();
+    }
+    if (wantImage && online) {
+      if (trmnl::configured()) {
+        imageChanged = trmnl::refresh() == trmnl::Result::Changed;
+      } else {
+        const uint32_t before = sleepImageFingerprint();
+        pluginevents::emit(pluginevents::Event::SleepEnter, nullptr, 0);
+        pluginevents::drain(nullptr);
+        imageChanged = sleepImageFingerprint() != before;
+      }
+    }
+  }
   if (WiFi.getMode() != WIFI_MODE_NULL) {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
   }
   trustedtime::note();
   halTiltSensor.deepSleep();
+  if (imageChanged) showSleepImage();
   Storage.prepareForDeepSleep();
-  armOpdsSyncWake();
+  armSyncWake();
   powerManager.startDeepSleep(gpio);
 }
 
@@ -702,7 +780,7 @@ void setup() {
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
         Storage.prepareForDeepSleep();
-        armOpdsSyncWake();
+        armSyncWake();
         powerManager.startDeepSleep(gpio);
       }
       wakePowerReleasePending = true;
@@ -722,7 +800,7 @@ void setup() {
       break;
 #else
       Storage.prepareForDeepSleep();
-      armOpdsSyncWake();
+      armSyncWake();
       powerManager.startDeepSleep(gpio);
       break;
 #endif

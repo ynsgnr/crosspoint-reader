@@ -1,5 +1,10 @@
 # CrossPoint Reader
 
+> **ynsgnr fork - X4 Pro only, built on the latest `develop`.** Adds:
+> - **Bluetooth page turner** (BLE ring/remote), from [upstream PR #3197](https://github.com/crosspoint-reader/crosspoint-reader/pull/3197).
+> - **OPDS auto-sync**: on a timer wake it downloads the latest books, skips ones already seen, and takes custom feed parameters (with a default). Works great with [nextcloud-koreader-companion](https://github.com/ynsgnr/nextcloud-koreader-companion), which optimizes books for the device and serves them.
+> - **TRMNL / LaraPaper screen** as the sleep image: shown when the sleep screen is Custom (or Cover + Custom without a cover), follows the inversion setting, auto-joins LaraPaper, and reports battery.
+
 [![Fund contributors](https://img.shields.io/badge/%F0%9F%91%91_Fund_contributors-royalty.dev-BB953A?style=for-the-badge&labelColor=1a1a1a)](https://app.royalty.dev/crosspoint-reader/crosspoint-reader)
 
 CrossPoint is open-source e-reader firmware - community-built, fully hackable, free forever. It's maintained by a growing community of developers and readers who believe your device should do what you want - not what a manufacturer decided for you.

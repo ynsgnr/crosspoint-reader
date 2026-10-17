@@ -336,6 +336,10 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t opdsFilenameFormat = 0;
   // OPDS auto-sync period in minutes; 0 = off. A server syncs only when it also has a feed set.
   uint8_t opdsSyncMinutes = 20;
+  // TRMNL / LaraPaper server; an empty token is filled in by the server's auto-join on first refresh.
+  char trmnlServer[128] = "";
+  char trmnlToken[64] = "";
+  char trmnlModelId[32] = "";
   // Hide battery percentage
   uint8_t hideBatteryPercentage = HIDE_NEVER;
   // Long-press page turn button behavior
