@@ -12,12 +12,14 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "network/OpdsAutoSync.h"
+#include "network/TrmnlClient.h"
 
 namespace {
 
 void syncWithPopups(GfxRenderer& renderer, void (*restartAfterSync)()) {
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   const opdssync::Summary summary = opdssync::syncNow();
+  if (!summary.wifiFailed && trmnl::configured()) trmnl::refresh();
 
   char message[64];
   if (summary.wifiFailed) {

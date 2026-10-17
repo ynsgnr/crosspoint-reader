@@ -19,6 +19,7 @@ enum class SettingAction {
   ClockSettings,
   KOReaderSync,
   OPDSBrowser,
+  Trmnl,
   Network,
   ClearCache,
   CheckForUpdates,

@@ -163,7 +163,7 @@ bool hasSyncFeed() {
 
 bool enabled() { return SETTINGS.opdsSyncMinutes != 0 && hasSyncFeed(); }
 
-uint32_t intervalSeconds() { return enabled() ? static_cast<uint32_t>(SETTINGS.opdsSyncMinutes) * 60 : 0; }
+bool joinWifi() { return joinSavedWifi(); }
 
 Summary syncNow() {
   Summary summary;
