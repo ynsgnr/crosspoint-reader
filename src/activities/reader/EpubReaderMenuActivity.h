@@ -30,7 +30,6 @@ class EpubReaderMenuActivity final : public UiListActivity {
     GO_HOME,
     SYNC,
     DELETE_CACHE,
-    TOGGLE_BLUETOOTH,
     DICTIONARY
   };
 

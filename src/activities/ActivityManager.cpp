@@ -400,25 +400,6 @@ bool ActivityManager::isReaderActivity() const {
          (currentActivity && currentActivity->isReaderActivity());
 }
 
-bool ActivityManager::currentKeepsBluetoothAlive() const {
-  return currentActivity && currentActivity->keepsBluetoothAlive();
-}
-
-void ActivityManager::requestGhostCleanup() {
-  if (currentActivity) currentActivity->requestGhostCleanup();
-}
-
-bool ActivityManager::bluetoothShouldBeActive() const {
-  const auto wants = [](const auto& activity) {
-    return activity && (activity->isReaderActivity() || activity->keepsBluetoothAlive());
-  };
-  return std::any_of(stackActivities.begin(), stackActivities.end(), wants) || wants(currentActivity);
-}
-
-bool ActivityManager::bluetoothStartDeferred() const {
-  return currentActivity && currentActivity->deferBluetoothStart();
-}
-
 bool ActivityManager::isForegroundReader() const {
   return pendingAction == PendingAction::None && currentActivity && currentActivity->isReaderActivity();
 }

@@ -28,7 +28,6 @@ enum class SettingAction {
   SdFirmwareUpdate,
   Language,
   DownloadFonts,
-  ProBluetooth,
   TextSettings,
   Plugins,
   KeyboardLayouts,

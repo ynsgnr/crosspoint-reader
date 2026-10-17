@@ -84,8 +84,6 @@ class ReaderActivity : public Activity {
   void render(RenderLock&& lock) override;
 
   bool isReaderActivity() const final { return true; }
-  // Next render does a full ghost-cleanup refresh (used after transient BT popups).
-  void requestGhostCleanup() override { pagesUntilFullRefresh = 1; }
   bool acceptsRemoteInput() const final { return pageRendered.load(std::memory_order_acquire); }
   bool handleForcedRefresh() final;
 };

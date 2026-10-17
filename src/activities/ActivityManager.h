@@ -114,16 +114,6 @@ class ActivityManager {
   bool preventAutoSleep() const;
   bool requiresExclusiveStorageLoop() const;
   bool isReaderActivity() const;
-  bool currentKeepsBluetoothAlive() const;
-  // True if BLE should be resident for the current context: any reader (page-turner
-  // input) or the Bluetooth settings screen (pairing) is on the stack.
-  bool bluetoothShouldBeActive() const;
-  // True while the CURRENT activity is mid heap-heavy work that must complete before
-  // NimBLE may start (see Activity::deferBluetoothStart). Current only, not the
-  // stack: a reader stacked under a menu has its loop() paused, so its build never
-  // advances — a stack-wide check would hold BLE off for as long as the menu stays
-  // open.
-  bool bluetoothStartDeferred() const;
   // Bluetooth page turner (lib/BlePageTurner): the book in front, whether it has painted a page, and
   // a page or chapter turn from a remote. False when no book in front took the turn.
   bool isForegroundReader() const;
@@ -143,9 +133,6 @@ class ActivityManager {
   // If immediate is true, the update will be triggered immediately.
   // Otherwise, it will be deferred until the end of the current loop iteration.
   void requestUpdate(bool immediate = false);
-
-  // Ask the current activity to make its next render a ghost-cleanup (HALF) refresh.
-  void requestGhostCleanup();
 
   // Trigger a render and block until it completes.
   // Must NOT be called from the render task or while holding a RenderLock.

@@ -161,27 +161,6 @@ bool MappedInputManager::mapButton(const Button button, bool (HalGPIO::*fn)(uint
   return false;
 }
 
-bool MappedInputManager::bleEdge(const bool* arr, const Button button) const {
-  // Mirror mapButton()'s composite navigation handling so a BLE key bound to a
-  // physical direction also satisfies the derived NavNext / NavPrevious logical
-  // buttons (used by list navigation), respecting the orientation axis flip.
-  switch (button) {
-    case Button::NavNext:
-      return isNavDirectionSwapped() ? (arr[(int)Button::Up] || arr[(int)Button::Left])
-                                     : (arr[(int)Button::Down] || arr[(int)Button::Right]);
-    case Button::NavPrevious:
-      return isNavDirectionSwapped() ? (arr[(int)Button::Down] || arr[(int)Button::Right])
-                                     : (arr[(int)Button::Up] || arr[(int)Button::Left]);
-    case Button::ScreenLeft:
-    case Button::ScreenRight:
-    case Button::ScreenUp:
-    case Button::ScreenDown:
-      return bleEdge(arr, mapScreenDirection(button));
-    default:
-      return arr[(int)button];
-  }
-}
-
 namespace {
 constexpr unsigned long TOUCH_DOWN_SELECT_DELAY_MS = 90;
 constexpr unsigned long TOUCH_HELD_OVERRIDE_WINDOW_MS = 250;
@@ -409,7 +388,7 @@ bool MappedInputManager::wasPressed(const Button button) const {
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
 #endif
-  return mapButton(button, &HalGPIO::wasPressed) || bleEdge(blePressEdge, button);
+  return mapButton(button, &HalGPIO::wasPressed);
 }
 
 bool MappedInputManager::wasReleased(const Button button) const {
@@ -423,7 +402,7 @@ bool MappedInputManager::wasReleased(const Button button) const {
 #if FREEINK_CAP_TOUCH
   if (button == Button::Confirm && wasPowerConfirmClick()) return true;
 #endif
-  return mapButton(button, &HalGPIO::wasReleased) || bleEdge(bleReleaseEdge, button);
+  return mapButton(button, &HalGPIO::wasReleased);
 }
 
 bool MappedInputManager::wasLongPressed(const Button button, const unsigned long thresholdMs) const {
@@ -436,11 +415,6 @@ bool MappedInputManager::wasLongPressed(const Button button, const unsigned long
     HalHaptics::longPress(SETTINGS.vibration == CrossPointSettings::VIBRATION_TOUCH_PAGE, SETTINGS.hapticIntensity);
   }
   return true;
-}
-
-bool MappedInputManager::isPressed(const Button button) const {
-  // A BLE tap is momentary: report "pressed" only on the press-edge frame.
-  return mapButton(button, &HalGPIO::isPressed) || bleEdge(blePressEdge, button);
 }
 
 void MappedInputManager::suppressNextRelease(const Button button) const {
@@ -459,15 +433,11 @@ bool MappedInputManager::consumeSuppressedRelease() const {
   return released != 0;
 }
 
+bool MappedInputManager::isPressed(const Button button) const { return mapButton(button, &HalGPIO::isPressed); }
+
 unsigned long MappedInputManager::getHeldTime() const {
   // A mapped action has its own meaning, independent of the contact duration.
   if (hasRemoteClick() || homeAction != HomeButtonAction::Ignore) return 0;
-  // A BLE-mapped key is a momentary tap with no physical hold (we don't model BLE
-  // press-and-hold). gpio.getHeldTime() returns the *last physical* button's hold
-  // duration, which is stale — if a BLE edge drove input this frame, reporting that
-  // stale value makes a tap look like a long-press (e.g. page tap -> chapter skip).
-  // Report zero in that case so BLE taps are always treated as short presses.
-  if (bleActivityThisFrame) return 0;
   if (!gpio.wasAnyPressed() && !gpio.wasAnyReleased() && touchHeldOverrideValid &&
       millis() - touchHeldOverrideAt <= TOUCH_HELD_OVERRIDE_WINDOW_MS) {
     return touchHeldOverrideMs;

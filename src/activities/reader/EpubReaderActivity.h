@@ -134,8 +134,6 @@ class EpubReaderActivity final : public ReaderActivity {
   bool backgroundBuildWanted() const;
   bool buildTickHeapGate();
   bool buildHeapPaused = false;
-  // BLE state the status bar last drew; loop() redraws the bar when it flips.
-  bool statusBarBleConnected = false;
   // Bluetooth page turner: every chapter build stops the radio until the chapter is built and its
   // page is shown. False: the radio still holds or is taking the heap, and the build must not run.
   std::atomic<bool> radioReleasedForBuild{false};

@@ -34,7 +34,6 @@
 #include <cstdarg>
 #include <cstring>
 
-#include "BleInput.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
 #include "KOReaderCredentialStore.h"
@@ -207,12 +206,6 @@ static void silentRestartTo(const uint32_t target, const char* targetName) {
   delay(50);
   ESP.restart();
 }
-
-// Latched in setup() from the read-and-clear of the RTC flag, so the reboot-loop
-// guard in bootWasSilentRestart() has the answer for the whole session.
-static bool bootWasSilentRestartFlag = false;
-
-bool bootWasSilentRestart() { return bootWasSilentRestartFlag; }
 
 void silentRestart() { silentRestartTo(SILENT_REBOOT_TARGET_HOME, "home"); }
 
@@ -464,11 +457,7 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   // Stop Bluetooth before plugin delivery can start WiFi; a timeout defers delivery.
   deepSleepInProgress = true;
-#if FREEINK_DEVICE_X4PRO
-  const bool bluetoothStopped = true;  // the Pro's stack is stopped by bleinput::stop() below
-#else
   const bool bluetoothStopped = bleturner::beforeSleep(2000);
-#endif
   if (!bluetoothStopped) LOG_ERR("SLP", "Bluetooth did not stop; deferring sleep-event delivery");
   refreshTrmnlBeforeSleep();
   deliverSleepPluginEvents(bluetoothStopped);
@@ -498,12 +487,6 @@ void enterDeepSleep(bool fromTimeout = false) {
     WiFi.disconnect(true);
     WiFi.mode(WIFI_OFF);
   }
-
-  // Drop any BLE HID link cleanly so the page-turner sees the disconnect promptly.
-  // bluetoothEnabled persists, so the setting is restored on the next wake.
-#if FREEINK_DEVICE_X4PRO
-  bleinput::stop();
-#endif
 
   halTiltSensor.deepSleep();
   display.deepSleep();
@@ -660,7 +643,6 @@ void setup() {
   silentRebootMagic = 0;
   silentRebootTarget = 0;
   silentRebootPayload = 0;
-  bootWasSilentRestartFlag = isSilentReboot;
 
   gpio.begin();
   powerManager.begin();
@@ -756,9 +738,7 @@ void setup() {
   // Restore the monotonic clock floor before anything reads time() (event
   // timestamps, loan-expiry checks).
   trustedtime::init();
-#if !FREEINK_DEVICE_X4PRO
   bleturner::begin(pageturner::host, SETTINGS.ble);
-#endif
 
   if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
     syncOnTimerWakeAndSleep();
@@ -912,81 +892,7 @@ void setup() {
   }
 
   allowSleepAt = millis() + 2000;
-  // Bluetooth is started lazily by the lifecycle check in loop() once a reader or the
-  // Bluetooth settings screen is on the stack — not here at boot — so home/browser and
-  // WiFi activities keep the ~50 KB the BLE stack would otherwise hold.
 }
-
-#if FREEINK_DEVICE_X4PRO
-// Bring the BLE stack up or down to match the current context. BLE is only resident
-// while a reader (page-turner input) or the Bluetooth settings screen (pairing) is on
-// the stack AND WiFi is off. Heap-heavy reader phases may stop BLE directly; this
-// lifecycle then restarts it only after the normal activity/render/heap gates pass.
-void updateBluetoothLifecycle() {
-  const bool wanted =
-      SETTINGS.bluetoothEnabled && activityManager.bluetoothShouldBeActive() && WiFi.getMode() == WIFI_MODE_NULL;
-  if (wanted && !BleHid.isRunning() && activityManager.bluetoothStartDeferred()) {
-    static uint32_t lastActivityDeferLogMs = 0;
-    if (millis() - lastActivityDeferLogMs > 10000) {
-      lastActivityDeferLogMs = millis();
-      LOG_INF("BLELC", "start deferred: activity busy heap=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    }
-    return;
-  }
-  // Heap gate: NimBLE needs ~57 KB. If the reader cannot spare that yet, retry
-  // on the next loop without entering any separate BLE hold state.
-  // The BT settings screen is explicit user intent to run BLE right now (scan/pair is
-  // dead without the stack). Its floor only needs to cover NimBLE itself — the 100 KB
-  // reader floor reserves build/render headroom that never gets used there.
-  const bool explicitBtContext = activityManager.currentKeepsBluetoothAlive();
-  const size_t startFloor = explicitBtContext ? bleinput::kStartMinFreeHeapExplicit : bleinput::kStartMinFreeHeap;
-  if (wanted && !BleHid.isRunning() && activityManager.isReaderActivity() && !renderer.hasFrameBuffer()) {
-    static uint32_t lastFramebufferLoanDeferLogMs = 0;
-    if (millis() - lastFramebufferLoanDeferLogMs > 10000) {
-      lastFramebufferLoanDeferLogMs = millis();
-      LOG_INF("BLELC", "start deferred: framebuffer lent heap=%u maxAlloc=%u", ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
-    }
-    return;
-  }
-  if (wanted && !BleHid.isRunning() && activityManager.isReaderActivity() && RenderLock::peek()) {
-    static uint32_t lastReaderRenderDeferLogMs = 0;
-    if (millis() - lastReaderRenderDeferLogMs > 10000) {
-      lastReaderRenderDeferLogMs = millis();
-      LOG_INF("BLELC", "start deferred: reader render in progress heap=%u maxAlloc=%u", ESP.getFreeHeap(),
-              ESP.getMaxAllocHeap());
-    }
-    return;
-  }
-  if (wanted && !BleHid.isRunning() && ESP.getFreeHeap() < startFloor) {
-    static uint32_t lastGateLogMs = 0;
-    if (millis() - lastGateLogMs > 10000) {
-      lastGateLogMs = millis();
-      LOG_INF("BLELC", "start deferred: heap %u floor %u", ESP.getFreeHeap(), (unsigned)startFloor);
-    }
-    return;
-  }
-  if (wanted && !BleHid.isRunning()) {
-    LOG_INF("BLELC", "start requested enabled=%u reader=%d settings=%d wifi=%d paired=%u heap=%u maxAlloc=%u",
-            SETTINGS.bluetoothEnabled, activityManager.isReaderActivity(), activityManager.currentKeepsBluetoothAlive(),
-            WiFi.getMode(), BleHid.pairedCount(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    // Start immediately once the lifecycle gates pass. Do not draw a reconnect
-    // popup here: that schedules a reader redraw while BLE has just consumed ~53 KB,
-    // which can immediately trip the render heap shed path and create a start/stop loop.
-    if (!bleinput::ensureStarted()) {
-      LOG_ERR("BLELC", "start failed heap=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-      return;
-    }
-    LOG_INF("BLELC", "started paired=%u heap=%u maxAlloc=%u", BleHid.pairedCount(), ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
-  } else if (!wanted && BleHid.isRunning()) {
-    LOG_INF("BLELC", "stop requested enabled=%u active=%d wifi=%d heap=%u maxAlloc=%u", SETTINGS.bluetoothEnabled,
-            activityManager.bluetoothShouldBeActive(), WiFi.getMode(), ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    bleinput::stop();
-    LOG_INF("BLELC", "stopped heap=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-  }
-}
-#endif  // FREEINK_DEVICE_X4PRO
 
 void loop() {
   static unsigned long maxLoopDuration = 0;
@@ -1009,11 +915,7 @@ void loop() {
   scene.pageShown = homeShown || remoteContext;
   scene.storageBusy = activityManager.requiresExclusiveStorageLoop();
   scene.wifiOn = WiFi.getMode() != WIFI_MODE_NULL;
-#if FREEINK_DEVICE_X4PRO
-  const bool remoteActed = false;
-#else
   const bool remoteActed = bleturner::tick(scene);
-#endif
 
   if (activityManager.requiresExclusiveStorageLoop()) {
     // USB Drive handed the raw SD card to the host. Do not run screenshots,
@@ -1031,29 +933,6 @@ void loop() {
     return;
   }
 
-#if FREEINK_DEVICE_X4PRO
-  updateBluetoothLifecycle();  // bring BLE up/down for the current activity context
-  static bool lastBleConnected = false;
-  BleHid.poll();  // drive BLE auto-reconnect + key auto-repeat (no-op when BT off)
-  const bool bleConnected = BleHid.isConnected();
-  if (bleConnected && !lastBleConnected) {
-    LOG_INF("BLELC", "connected name=%s heap=%u maxAlloc=%u", BleHid.connectedName(), ESP.getFreeHeap(),
-            ESP.getMaxAllocHeap());
-    if (activityManager.isReaderActivity() && !activityManager.currentKeepsBluetoothAlive()) {
-      activityManager.requestUpdate();
-    }
-  } else if (!bleConnected && lastBleConnected) {
-    LOG_INF("BLELC", "disconnected heap=%u maxAlloc=%u", ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-    if (activityManager.isReaderActivity() && !activityManager.currentKeepsBluetoothAlive()) {
-      activityManager.requestUpdate();
-    }
-  }
-  lastBleConnected = bleConnected;
-  mappedInputManager.pollBle();  // drain BLE keys -> logical-button overlay for this frame
-  const bool proBleActivity = mappedInputManager.bleHadActivityThisFrame();
-#else
-  const bool proBleActivity = false;
-#endif
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   // Under the render lock, so a step never overlaps the themes' gauge reads.
@@ -1098,7 +977,7 @@ void loop() {
   // Check for any user activity (button press or release) or active background work
   static unsigned long lastActivityTime = millis();
   if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || gpio.wasTouchActivity() || halTiltSensor.hadActivity() ||
-      remoteActed || proBleActivity || activityManager.preventAutoSleep()) {
+      remoteActed || activityManager.preventAutoSleep()) {
     lastActivityTime = millis();         // Reset inactivity timer
     powerManager.setPowerSaving(false);  // Restore normal CPU frequency on user activity
   }
@@ -1273,15 +1152,7 @@ void loop() {
     powerManager.setPowerSaving(false);  // Make sure we're at full performance when skipLoopDelay is requested
     yield();                             // Give FreeRTOS a chance to run tasks, but return immediately
   } else {
-#if FREEINK_DEVICE_X4PRO
-    // The BLE controller cannot run at the 10 MHz low-power frequency — NimBLE's
-    // controller reset/maintenance hangs the radio and trips the interrupt WDT (the
-    // same reason WiFi force-disables power saving in HalPowerManager). Keep full CPU
-    // speed whenever the BLE stack is actually resident, regardless of input idleness.
-    if (!BleHid.isRunning() && millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS) {
-#else
     if (millis() - lastActivityTime >= HalPowerManager::IDLE_POWER_SAVING_MS && !pageturner::holdsCpu.load()) {
-#endif
       // If we've been inactive for a while, increase the delay to save power
       powerManager.setPowerSaving(true);  // Lower CPU frequency after extended inactivity
       // Sleep in short slices and wake the poll as soon as a button contact closes.
@@ -1293,7 +1164,6 @@ void loop() {
         if (gpio.rawInputActive()) break;
       }
     } else {
-      if (BleHid.isRunning()) powerManager.setPowerSaving(false);  // keep the BLE radio stable
       // Short delay to prevent tight loop while still being responsive
       delay(10);
     }
