@@ -30,10 +30,9 @@ OpdsSettingsActivity::OpdsSettingsActivity(GfxRenderer& renderer, MappedInputMan
     : UiListActivity("OpdsSettings", renderer, mappedInput), serverIndex(serverIndex) {
   // Labels never change (unlike the values, which track editServer's fields
   // live), so they're set once here rather than every buildScreen() call.
-  static constexpr StrId fieldNames[BASE_ITEMS] = {StrId::STR_SERVER_NAME,     StrId::STR_OPDS_SERVER_URL,
-                                                   StrId::STR_USERNAME,        StrId::STR_PASSWORD,
-                                                   StrId::STR_CUSTOM_HEADER_1, StrId::STR_CUSTOM_HEADER_2,
-                                                   StrId::STR_OPDS_SYNC_FEED};
+  static constexpr StrId fieldNames[BASE_ITEMS] = {
+      StrId::STR_SERVER_NAME,     StrId::STR_OPDS_SERVER_URL, StrId::STR_USERNAME,      StrId::STR_PASSWORD,
+      StrId::STR_CUSTOM_HEADER_1, StrId::STR_CUSTOM_HEADER_2, StrId::STR_OPDS_SYNC_FEED};
   for (int i = 0; i < BASE_ITEMS; i++) {
     fieldRowItems[i].label = I18N.get(fieldNames[i]);
     fieldRowItems[i].actionValue = static_cast<int16_t>(i);

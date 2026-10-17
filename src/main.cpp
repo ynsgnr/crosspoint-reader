@@ -1,6 +1,6 @@
 #include <Arduino.h>
-#include <BlePageTurner.h>
 #include <Bitmap.h>
+#include <BlePageTurner.h>
 #include <BoardConfig.h>
 #include <Epub.h>
 #include <FontCacheManager.h>

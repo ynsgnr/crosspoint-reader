@@ -54,6 +54,7 @@ bool MappedInputManager::mapButton(Button b, bool (HalGPIO::*fn)(uint8_t) const)
   return (gpio.*fn)(static_cast<uint8_t>(b));
 }
 bool MappedInputManager::wasBackGesture() const { return false; }
+bool MappedInputManager::bleEdge(const bool*, Button) const { return false; }  // X4 Pro BLE overlay
 MappedInputManager::SwipeDir MappedInputManager::wasSwipe(int*, int*) const { return SwipeDir::None; }
 """ + "\n".join(methods) + r"""
 int main() {

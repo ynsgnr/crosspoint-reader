@@ -4,9 +4,8 @@
 #include <HalStorage.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
-#include <OpdsParser.h>
+#include <OpdsFeedParser.h>
 #include <OpdsSeenLedger.h>
-#include <OpdsStream.h>
 #include <TrustedTime.h>
 #include <WiFi.h>
 
@@ -54,20 +53,18 @@ class DeviceBackend final : public Backend {
 
   Page fetchPage(const std::string& url) override {
     Page page;
-    OpdsParser parser;  // freed on return, before downloads take the heap for TLS
-    {
-      OpdsParserStream stream{parser};
-      if (!HttpDownloader::fetchUrl(url, stream, server.username, server.password)) {
-        const int status = HttpDownloader::lastStatus();
-        page.status = (status == 401 || status == 403) ? Page::Status::AuthFailed : Page::Status::Failed;
-        return page;
-      }
+    OpdsFeedParser parser;  // freed on return, before downloads take the heap for TLS
+    const auto onData = [&parser](const uint8_t* data, size_t len) { return parser.write(data, len) == len; };
+    if (!HttpDownloader::fetchUrl(url, onData, server.username, server.password, server.activeCustomHeaders())) {
+      const int status = HttpDownloader::lastStatus();
+      page.status = (status == 401 || status == 403) ? Page::Status::AuthFailed : Page::Status::Failed;
+      return page;
     }
-    if (!parser) {
+    if (parser.error()) {
       page.status = Page::Status::Failed;
       return page;
     }
-    for (const auto& entry : parser.getEntries()) {
+    for (const auto& entry : parser.takeEntries()) {
       if (entry.type != OpdsEntryType::BOOK) continue;
       page.books.push_back({entryKey(entry), entry.title, entry.author, entry.href});
     }
@@ -93,8 +90,8 @@ class DeviceBackend final : public Backend {
   bool fileExists(const std::string& path) override { return Storage.exists(path.c_str()); }
 
   DownloadResult download(const std::string& url, const std::string& destPath) override {
-    const auto result =
-        HttpDownloader::downloadToFile(url, destPath, nullptr, nullptr, server.username, server.password);
+    const auto result = HttpDownloader::downloadToFile(url, destPath, nullptr, nullptr, server.username,
+                                                       server.password, server.activeCustomHeaders());
     if (result == HttpDownloader::OK) return DownloadResult::Ok;
     LOG_ERR("OSY", "Download failed (%d): %s", static_cast<int>(result), destPath.c_str());
     return result == HttpDownloader::UNAUTHORIZED ? DownloadResult::Unauthorized : DownloadResult::Failed;
