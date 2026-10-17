@@ -59,7 +59,7 @@ void BluetoothSettingsActivity::rebuildRows() {
         }
       }
       addRow(tr(STR_BT_PAIRED_DEVICES), static_cast<int16_t>(Action::PairedDevices));
-      addRow(tr(STR_BT_MAP_BUTTONS), static_cast<int16_t>(Action::MapButtons));
+      addRow(tr(STR_PROBT_MAP_BUTTONS), static_cast<int16_t>(Action::MapButtons));
     }
   } else if (view == View::Scan) {
     const int count = BleHid.deviceCount();
@@ -71,7 +71,7 @@ void BluetoothSettingsActivity::rebuildRows() {
         if (auto* row = addRow(tr(STR_SCANNING), -1)) row->enabled = false;
       } else {
         // Scan finished with nothing found: one actionable row to scan again.
-        addRow(tr(STR_BT_NO_DEVICES), -1);
+        addRow(tr(STR_PROBT_NO_DEVICES), -1);
       }
     }
   } else {  // Paired
@@ -240,7 +240,7 @@ bool BluetoothSettingsActivity::handleCustomInput() {
       BleHid.releaseScanResults();
       view = View::Menu;
       char buf[64];
-      snprintf(buf, sizeof(buf), tr(STR_BT_CONNECTED_TO), BleHid.connectedName());
+      snprintf(buf, sizeof(buf), tr(STR_PROBT_CONNECTED_TO), BleHid.connectedName());
       setBanner(buf);
       moveSelectionTo(0);
     } else if (BleHid.takeConnectFailure(reason, sizeof(reason))) {

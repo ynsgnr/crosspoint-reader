@@ -60,6 +60,7 @@ class Activity {
   // than a fast/partial one. Used after drawing a transient popup over grayscale content
   // (e.g. the "BT Connecting..." popup over a reader page) so it clears without ghosting.
   virtual void requestGhostCleanup() {}
+  virtual bool acceptsRemoteInput() const { return false; }
   // Returns true when the activity schedules its own forced refresh.
   virtual bool handleForcedRefresh() { return false; }
   virtual bool isHomeActivity() const { return false; }

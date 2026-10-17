@@ -45,7 +45,7 @@ class BleButtonMapActivity final : public UiListActivity {
   void activateIndex(int index) override;
   bool handleCustomInput() override;
   void onBackButton() override;
-  const char* headerTitle() const override { return tr(STR_BT_MAP_BUTTONS); }
+  const char* headerTitle() const override { return tr(STR_PROBT_MAP_BUTTONS); }
   void drawChrome() override;
 
   void rebuildRows();

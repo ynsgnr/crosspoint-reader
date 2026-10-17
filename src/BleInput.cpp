@@ -20,6 +20,9 @@ volatile bool g_startInProgress = false;
 // frequency, so force normal CPU speed around both. Centralized here so every caller
 // (boot restore, settings toggle, reader toggle, sleep) is covered automatically.
 bool ensureStarted() {
+#if !FREEINK_DEVICE_X4PRO
+  return false;  // non-Pro boards use lib/BlePageTurner; this stack is Pro-only
+#endif
   g_startInProgress = true;
   HalPowerManager::Lock powerLock;
   const bool ok = BleHid.begin(kHostName);
@@ -33,6 +36,9 @@ bool startInProgress() { return g_startInProgress; }
 // returned to the heap — otherwise memory-hungry work like EPUB inflate can't
 // allocate even after the user turns Bluetooth off.
 void stop() {
+#if !FREEINK_DEVICE_X4PRO
+  return;  // would tear down lib/BlePageTurner's stack
+#endif
   HalPowerManager::Lock powerLock;
   BleHid.end();
 }

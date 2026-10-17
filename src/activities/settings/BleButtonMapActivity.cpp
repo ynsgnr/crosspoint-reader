@@ -150,7 +150,7 @@ void BleButtonMapActivity::drawChrome() {
     const auto& metrics = UITheme::getInstance().getMetrics();
     GUI.drawSubHeader(
         renderer, Rect{0, metrics.topPadding + metrics.headerHeight, renderer.getScreenWidth(), metrics.tabBarHeight},
-        tr(STR_BT_PRESS_REMOTE));
+        tr(STR_PROBT_PRESS_REMOTE));
   }
 }
 

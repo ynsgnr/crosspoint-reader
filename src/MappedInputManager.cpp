@@ -17,6 +17,7 @@
 namespace fui = freeink::ui;
 
 void MappedInputManager::update(const bool deferHomeButtonAction) const {
+  remoteInput.reset();
   gpio.update();
   const bool pagePressed =
       SETTINGS.vibration == CrossPointSettings::VIBRATION_TOUCH_PAGE && gpio.wasCapacitivePagePressed();
@@ -392,7 +393,18 @@ bool MappedInputManager::wasPowerConfirmClick() const {
 }
 #endif
 
+bool MappedInputManager::injectRemoteClick(const RemoteButton button) {
+  if (gpio.wasAnyPressed() || gpio.wasAnyReleased() || isPressed(Button::Confirm) || isPressed(Button::Back))
+    return false;
+  return remoteInput.click(button);
+}
+
 bool MappedInputManager::wasPressed(const Button button) const {
+  if (button == Button::Confirm && remoteInput.button == RemoteButton::Confirm) return true;
+  if (button == Button::Back && remoteInput.button == RemoteButton::Back) return true;
+  if ((button == Button::NavNext || button == Button::Right) && remoteInput.button == RemoteButton::Next) return true;
+  if ((button == Button::NavPrevious || button == Button::Left) && remoteInput.button == RemoteButton::Previous)
+    return true;
   if (button == Button::Confirm && homeAction == HomeButtonAction::Confirm) return true;
   if (button == Button::Back && wasBackGesture()) return true;
 #if FREEINK_CAP_TOUCH
@@ -402,6 +414,11 @@ bool MappedInputManager::wasPressed(const Button button) const {
 }
 
 bool MappedInputManager::wasReleased(const Button button) const {
+  if (button == Button::Confirm && remoteInput.button == RemoteButton::Confirm) return true;
+  if (button == Button::Back && remoteInput.button == RemoteButton::Back) return true;
+  if ((button == Button::NavNext || button == Button::Right) && remoteInput.button == RemoteButton::Next) return true;
+  if ((button == Button::NavPrevious || button == Button::Left) && remoteInput.button == RemoteButton::Previous)
+    return true;
   if (button == Button::Confirm && homeAction == HomeButtonAction::Confirm) return true;
   if (button == Button::Back && wasBackGesture()) return true;
 #if FREEINK_CAP_TOUCH
@@ -502,7 +519,7 @@ bool MappedInputManager::consumeSuppressedRelease() const {
 
 unsigned long MappedInputManager::getHeldTime() const {
   // A mapped action has its own meaning, independent of the contact duration.
-  if (homeAction != HomeButtonAction::Ignore) return 0;
+  if (hasRemoteClick() || homeAction != HomeButtonAction::Ignore) return 0;
   // A BLE-mapped key is a momentary tap with no physical hold (we don't model BLE
   // press-and-hold). gpio.getHeldTime() returns the *last physical* button's hold
   // duration, which is stale — if a BLE edge drove input this frame, reporting that
