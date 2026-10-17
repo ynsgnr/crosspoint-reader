@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <cstring>
 
-#include "BleInput.h"
 #include "MappedInputManager.h"
 #include "SdCardFontSystem.h"
 #include "SilentRestart.h"
@@ -73,12 +72,6 @@ void FontDownloadActivity::onBackButton() {
 
 void FontDownloadActivity::onEnter() {
   UiListActivity::onEnter();
-  // Free the BLE stack BEFORE bringing WiFi up (matches WifiSelectionActivity):
-  // the C3 shares one radio and heap between the stacks, and the WiFi driver
-  // sizes its RX/TX buffer pools at init — initializing it with NimBLE's ~50 KB
-  // still resident leaves WiFi permanently starved even after the lifecycle
-  // stops BLE a loop later. No-op when BLE is already off.
-  bleinput::stop();
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });

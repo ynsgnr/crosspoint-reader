@@ -15,6 +15,12 @@ void OpdsServerStore::toJson(JsonDocument& doc) const {
     obj["username"] = server.username;
     obj["password_obf"] = obfuscation::obfuscateToBase64(server.password);
     if (!server.syncFeed.empty()) obj["sync_feed"] = server.syncFeed;
+    JsonArray headers = obj["headers"].to<JsonArray>();
+    for (const auto& header : server.customHeaders) {
+      JsonObject headerObj = headers.add<JsonObject>();
+      headerObj["name"] = header.name;
+      headerObj["value_obf"] = obfuscation::obfuscateToBase64(header.value);
+    }
   }
 }
 
@@ -34,6 +40,15 @@ bool OpdsServerStore::fromJson(JsonVariantConst doc) {
     server.username = obj["username"] | "";
     server.password = extractPassword(obj, needsResave);
     server.syncFeed = obj["sync_feed"] | "";
+
+    size_t headerIndex = 0;
+    for (JsonObjectConst headerObj : obj["headers"].as<JsonArrayConst>()) {
+      if (headerIndex >= OpdsServer::MAX_CUSTOM_HEADERS) break;
+      server.customHeaders[headerIndex].name = headerObj["name"] | "";
+      server.customHeaders[headerIndex].value = obfuscation::deobfuscateFromBase64(headerObj["value_obf"] | "");
+      headerIndex++;
+    }
+
     servers.push_back(std::move(server));
   }
 
@@ -83,4 +98,13 @@ const OpdsServer* OpdsServerStore::getServer(size_t index) const {
     return nullptr;
   }
   return &servers[index];
+}
+
+std::vector<HttpDownloader::Header> OpdsServer::activeCustomHeaders() const {
+  std::vector<HttpDownloader::Header> active;
+  active.reserve(MAX_CUSTOM_HEADERS);
+  for (const auto& header : customHeaders) {
+    if (!header.name.empty()) active.emplace_back(header.name, header.value);
+  }
+  return active;
 }

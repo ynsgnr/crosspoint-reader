@@ -1,5 +1,6 @@
 #include "CrossPointSettings.h"
 
+#include <BlePageTurnerJson.h>
 #include <I18n.h>
 #include <Logging.h>
 #include <ObfuscationUtils.h>
@@ -11,11 +12,11 @@
 #include <string>
 
 #include "I18nKeys.h"
-#include "MappedInputManager.h"
 #include "ReaderFontSizes.h"
 #include "SettingsList.h"
 #include "fontIds.h"
 #include "util/ParagraphIndentMigration.h"
+#include "util/PluginLocations.h"
 
 namespace {
 
@@ -90,16 +91,6 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   doc["frontButtonConfirm"] = frontButtonConfirm;
   doc["frontButtonLeft"] = frontButtonLeft;
   doc["frontButtonRight"] = frontButtonRight;
-  // Bluetooth — managed by BluetoothSettingsActivity, not in SettingsList.
-  doc["bluetoothEnabled"] = bluetoothEnabled;
-  JsonArray storedBleMap = doc["bleKeyMap"].to<JsonArray>();
-  for (const auto& entry : bleKeyMap) {
-    if (entry.keyKind == 0xFF || entry.button == 0xFF) continue;
-    JsonObject object = storedBleMap.add<JsonObject>();
-    object["k"] = entry.keyKind;
-    object["v"] = entry.keyValue;
-    object["b"] = entry.button;
-  }
   // Font family and size — both use dynamic getter/setters in SettingsList (the
   // option lists depend on the SD font registry), so the generic loop skips them.
   doc["fontFamily"] = fontFamily;
@@ -126,6 +117,8 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
   if (keyboardLayouts != 0) {
     doc["keyboardLayouts"] = keyboardLayouts;
   }
+
+  bleturner::writeJson(ble, doc);
 }
 
 bool CrossPointSettings::fromJson(JsonVariantConst doc) {
@@ -195,6 +188,14 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     }
   }
 
+  // Plugin System did not exist in older settings files. Preserve the behavior
+  // of users who already have SD plugins installed, while keeping the new
+  // default disabled on clean installs.
+  if (doc["pluginsEnabled"].isNull()) {
+    pluginsEnabled = PluginLocations::anyPluginInstalledOnDisk() ? 1 : 0;
+    needsResave = true;
+  }
+
   const auto indentSpaces = doc["paragraphIndentSpaces"];
   const bool hasSavedWidth = indentSpaces.is<int>();
   const int savedWidth = hasSavedWidth ? indentSpaces.as<int>() : 0;
@@ -231,23 +232,6 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
       clamp(doc["frontButtonRight"] | (uint8_t)FRONT_HW_RIGHT, FRONT_BUTTON_HARDWARE_COUNT, FRONT_HW_RIGHT);
   validateFrontButtonMapping(s);
 
-  // Bluetooth — managed by BluetoothSettingsActivity, not in SettingsList.
-  bluetoothEnabled = clamp(doc["bluetoothEnabled"] | (uint8_t)0, 2, 0);
-  std::fill(std::begin(bleKeyMap), std::end(bleKeyMap), BleKeyMapEntry{});
-  JsonArrayConst storedBleMap = doc["bleKeyMap"];
-  if (!storedBleMap.isNull()) {
-    uint8_t slot = 0;
-    for (JsonObjectConst object : storedBleMap) {
-      if (slot >= BLE_MAP_CAPACITY) break;
-      const uint8_t button = object["b"] | (uint8_t)0xFF;
-      if (button >= MappedInputManager::kButtonCount) continue;
-      bleKeyMap[slot].keyKind = object["k"] | (uint8_t)0xFF;
-      bleKeyMap[slot].keyValue = object["v"] | (uint8_t)0;
-      bleKeyMap[slot].button = button;
-      ++slot;
-    }
-  }
-
   // Reader font size — an actual point size since 1.5. Files written by 1.4 and
   // earlier hold the old SMALL/MEDIUM/LARGE/EXTRA_LARGE slot in 0..3; no font is
   // renderable at those sizes, so the range is unambiguous and folds to the
@@ -265,7 +249,7 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   // These controls use board-specific display-index mappings and are skipped by
   // the generic settings loop. Persisted action IDs remain stable across boards.
   longPressMenuFunction = clamp(doc["longPressMenuFunction"] | (uint8_t)LP_MENU_DISABLED,
-                                (uint8_t)(LP_MENU_CREATE_CLIPPING + 1), (uint8_t)LP_MENU_DISABLED);
+                                (uint8_t)LONG_PRESS_MENU_FUNCTION_COUNT, (uint8_t)LP_MENU_DISABLED);
   shortPwrBtn = clamp(doc["shortPwrBtn"] | (uint8_t)IGNORE, (uint8_t)SHORT_PWRBTN_COUNT, (uint8_t)IGNORE);
   if (BoardConfig::hasHomeKey() && doc["homeButtonLongPressAction"].isNull() &&
       !doc["longPressMenuFunction"].isNull()) {
@@ -300,6 +284,10 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
   // Absent means unconfigured, which is the default.
   if (doc["keyboardLayouts"].is<uint16_t>()) {
     keyboardLayouts = doc["keyboardLayouts"].as<uint16_t>();
+  }
+
+  if (!bleturner::readJson(ble, doc)) {
+    needsResave = true;
   }
 
   if (needsResave) {

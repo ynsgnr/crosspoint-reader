@@ -1,5 +1,6 @@
 #include "BaseTheme.h"
 
+#include <BoardConfig.h>
 #include <FreeInkUIGfxRenderer.h>
 #include <GfxRenderer.h>
 #include <HalClock.h>
@@ -20,7 +21,6 @@
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/UiAppHelpers.h"
-#include "components/icons/bluetooth.h"
 #include "components/icons/bookmark.h"
 #include "components/icons/cover.h"
 #include "components/icons/headerIcons.h"
@@ -43,9 +43,7 @@ constexpr int homeMarginTop = 30;
 constexpr int subtitleY = 738;
 constexpr int bookmarkStatusIconWidth = 16;
 constexpr int bookmarkStatusIconHeight = 14;
-constexpr int bluetoothStatusIconWidth = 16;
-constexpr int bluetoothStatusIconHeight = 16;
-constexpr int statusIconGap = 4;
+constexpr int bookmarkStatusIconGap = 4;
 constexpr int bookmarkStatusIconTopCrop = 2;
 
 void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int y) {
@@ -55,17 +53,6 @@ void drawBookmarkStatusIcon(const GfxRenderer& renderer, const int x, const int 
       const uint8_t byte = BookmarkStatusIcon[(row + bookmarkStatusIconTopCrop) * bytesPerRow + col / 8];
       const uint8_t mask = 1U << (7 - (col % 8));
       renderer.drawPixel(x + col, y + row, (byte & mask) != 0);
-    }
-  }
-}
-
-void drawBluetoothStatusIcon(const GfxRenderer& renderer, const int x, const int y) {
-  constexpr int bytesPerRow = bluetoothStatusIconWidth / 8;
-  for (int row = 0; row < bluetoothStatusIconHeight; ++row) {
-    for (int col = 0; col < bluetoothStatusIconWidth; ++col) {
-      const uint8_t byte = BluetoothStatusIcon[row * bytesPerRow + col / 8];
-      const uint8_t mask = 1U << (7 - (col % 8));
-      renderer.drawPixel(x + col, y + row, (byte & mask) == 0);
     }
   }
 }
@@ -375,10 +362,13 @@ void BaseTheme::applyHeaderStatus(const GfxRenderer& renderer, freeink::ui::Head
       static_cast<int16_t>((renderer.getLineHeight(titleFontId) - renderer.getTextHeight(titleFontId)) / 2);
   props.leadingSize = headerButtonSize;
   props.trailingSize = headerButtonSize;
+  props.leadingStyles = freeink::ui::plainStyles(freeink::ui::Paint::solid(freeink::ui::Color::Black));
   props.actionOffsetY = static_cast<int16_t>(strip + (bandHeight - strip - headerButtonSize) / 2 - 4 + opticalDrop);
   // Shift the title's band-centered box down by half the strip: its center
   // lands on the below-strip region's midline with the buttons.
-  props.titleOffsetY = static_cast<int16_t>(strip / 2);
+  // headerBand lowers only the band's top edge, which moves a centered title
+  // half as far as the buttons; the second half keeps the title on their line.
+  props.titleOffsetY = static_cast<int16_t>(strip / 2 + BoardConfig::ACTIVE.headerOffsetY / 2);
   status.stripHeight = strip;
   status.clockCentered = metrics.headerClockCentered;
 
@@ -390,6 +380,21 @@ void BaseTheme::applyHeaderStatus(const GfxRenderer& renderer, freeink::ui::Head
       halClock.formatTime(clockText, sizeof(clockText), SETTINGS.clockFormat == 1)) {
     status.clockText = clockText;
   }
+}
+
+freeink::ui::Rect BaseTheme::headerBand(const GfxRenderer& renderer, const freeink::ui::Rect rect,
+                                        freeink::ui::HeaderProps& props) {
+  int top, right, bottom, left;
+  renderer.getOrientedViewableTRBL(&top, &right, &bottom, &left);
+  const auto l = static_cast<int16_t>(left);
+  const auto r = static_cast<int16_t>(right);
+  const int16_t offset = BoardConfig::ACTIVE.headerOffsetY;
+  props.bleed = freeink::ui::Insets{0, r, 0, l};
+  // Only the status line sits up in the rounded corners; it alone gets their clearance.
+  const int corner = BoardConfig::ACTIVE.cornerRadius;
+  props.status.edgeInset = static_cast<int16_t>(props.status.edgeInset + std::max(0, corner - std::min(left, right)));
+  return freeink::ui::Rect{static_cast<int16_t>(rect.x + l), static_cast<int16_t>(rect.y + offset),
+                           static_cast<int16_t>(rect.width - l - r), static_cast<int16_t>(rect.height - offset)};
 }
 
 void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* title, const char* subtitle,
@@ -412,14 +417,6 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   // subtitles.
   ui.target.setFont(fui::GfxRendererTarget::FONT_SMALL, SMALL_FONT_ID);
   ui.target.setFont(fui::GfxRendererTarget::FONT_LABEL, SMALL_FONT_ID);
-  // Callers pass a full-width header rect, so the battery/title would sit at the
-  // true screen edges — clipped on rounded-corner panels (EEGO A4). Inset the band
-  // horizontally by the board's viewable insets so header chrome clears the bezel.
-  int hMarginTop, hMarginRight, hMarginBottom, hMarginLeft;
-  renderer.getOrientedViewableTRBL(&hMarginTop, &hMarginRight, &hMarginBottom, &hMarginLeft);
-  const fui::Rect band{static_cast<int16_t>(rect.x + hMarginLeft), static_cast<int16_t>(rect.y),
-                       static_cast<int16_t>(rect.width - hMarginLeft - hMarginRight),
-                       static_cast<int16_t>(rect.height)};
 
   fui::HeaderProps props;
   props.title = title;
@@ -427,6 +424,11 @@ void BaseTheme::drawHeader(const GfxRenderer& renderer, Rect rect, const char* t
   // Battery + clock chrome and their title reserves live in the FreeInkUI
   // header component; this only fills the values from settings and metrics.
   applyHeaderStatus(renderer, props);
+  // Callers pass a full-width header rect; headerBand fits it to the board's bezel.
+  const fui::Rect band = headerBand(renderer,
+                                    fui::Rect{static_cast<int16_t>(rect.x), static_cast<int16_t>(rect.y),
+                                              static_cast<int16_t>(rect.width), static_cast<int16_t>(rect.height)},
+                                    props);
   if (rect.height < UITheme::getInstance().getMetrics().headerHeight) {
     // Short bands (home) are not split into strip + content row: the title
     // centers on the band, clear of the band's bottom edge.
@@ -802,8 +804,7 @@ void BaseTheme::fillPopupProgress(const GfxRenderer& renderer, const Rect& layou
 
 void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, const int currentPage,
                               const int pageCount, std::string title, const int paddingBottom, const int textYOffset,
-                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated,
-                              const bool bluetoothConnected) {
+                              const bool fillMargin, const bool isPageBookmarked, const bool pageCountEstimated) {
   auto metrics = UITheme::getInstance().getMetrics();
   int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
   renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
@@ -815,8 +816,11 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
   const auto screenHeight = renderer.getScreenHeight();
   auto textY = screenHeight - UITheme::getInstance().getStatusBarHeight() - orientedMarginBottom - paddingBottom - 4;
 
-  const int leftClusterX = metrics.statusBarHorizontalMargin + orientedMarginLeft + 1;
-  const int rightClusterX = renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - orientedMarginRight;
+  // The side clusters sit in the bottom corners: clear the panel's rounded corners too.
+  const int corner = BoardConfig::ACTIVE.cornerRadius;
+  const int leftClusterX = metrics.statusBarHorizontalMargin + std::max(orientedMarginLeft, corner) + 1;
+  const int rightClusterX =
+      renderer.getScreenWidth() - metrics.statusBarHorizontalMargin - std::max(orientedMarginRight, corner);
   int leftClusterWidth = 0;
   int rightClusterWidth = 0;
 
@@ -905,16 +909,9 @@ void BaseTheme::drawStatusBar(GfxRenderer& renderer, const float bookProgress, c
     }
   }
 
-  // Draw status icons
-  if (showStatusBarTextLane && bluetoothConnected) {
-    const int bluetoothGap = leftClusterWidth > 0 ? statusIconGap : 0;
-    const int bluetoothX = leftClusterX + leftClusterWidth + bluetoothGap;
-    const int bluetoothY = textY + 3;
-    drawBluetoothStatusIcon(renderer, bluetoothX, bluetoothY);
-    leftClusterWidth += bluetoothStatusIconWidth + bluetoothGap;
-  }
+  // Draw Bookmark
   if (showStatusBarTextLane && isPageBookmarked) {
-    const int bookmarkGap = leftClusterWidth > 0 ? statusIconGap : 0;
+    const int bookmarkGap = leftClusterWidth > 0 ? bookmarkStatusIconGap : 0;
     const int bookmarkX = leftClusterX + leftClusterWidth + bookmarkGap;
     const int bookmarkY = textY + 5;
     drawBookmarkStatusIcon(renderer, bookmarkX, bookmarkY);

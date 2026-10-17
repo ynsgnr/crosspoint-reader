@@ -10,7 +10,6 @@
 
 #include <algorithm>
 
-#include "BleInput.h"
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
 #include "WifiCredentialStore.h"
@@ -190,11 +189,6 @@ void WifiSelectionActivity::startWifiScan(const bool autoScan) {
   networkStatuses.clear();
   networkRowItems.clear();
   requestUpdate();
-
-  // Free the BLE stack before bringing WiFi up: the C3 has one radio and the two
-  // stacks can't both fit in heap. Reachable from the reader via KOReader sync, where
-  // BLE is still resident; a no-op when BLE is already off (launched from Settings).
-  bleinput::stop();
 
   // Set WiFi mode to station
   WiFi.mode(WIFI_STA);
@@ -471,7 +465,6 @@ void WifiSelectionActivity::attemptConnection() {
   connectionError.clear();
   requestUpdate();
 
-  bleinput::stop();        // free the BLE stack before WiFi (shared C3 radio, tight heap)
   WiFi.persistent(false);  // Credentials are managed by WifiCredentialStore; suppress SDK NVS auto-connect
   WiFi.mode(WIFI_STA);
   WiFi.disconnect(true, true);  // Abort any in-progress SDK auto-connect and clear NVS-saved SSID
@@ -862,15 +855,14 @@ void WifiSelectionActivity::render(RenderLock&&) {
   // so 32 truncated it. See ClockSyncActivity for the same class of bug.
   char countStr[64];
   snprintf(countStr, sizeof(countStr), tr(STR_NETWORKS_FOUND), realNetworkCount);
-  // drawHeader self-insets by the board's viewable margins, so it takes a
-  // full-width rect (the contract every other caller uses). Passing the already
-  // safe-inset `screen` here double-inset the header on bezel panels (EEGO A4).
-  GUI.drawHeader(renderer, Rect{0, screen.y + metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
+  // drawHeader self-insets by the board's viewable margins, so it takes the
+  // full-width rect at metrics.topPadding that every other caller uses; the
+  // safe-area `screen` would inset it twice.
+  GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
                  tr(STR_WIFI_NETWORKS), countStr);
-  GUI.drawSubHeader(
-      renderer,
-      Rect{screen.x, screen.y + metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
-      cachedMacAddress.c_str());
+  GUI.drawSubHeader(renderer,
+                    Rect{screen.x, metrics.topPadding + metrics.headerHeight, screen.width, metrics.tabBarHeight},
+                    cachedMacAddress.c_str());
 
   switch (state) {
     case WifiSelectionState::AUTO_CONNECTING:
