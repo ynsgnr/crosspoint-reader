@@ -28,11 +28,20 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OpdsAutoSync.h"
+#ifdef CROSSPOINT_MIRROR
+#include "device/MirrorActivity.h"
+#define MIRROR_ENABLED 1
+#else
+#define MIRROR_ENABLED 0
+#endif
 
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Library, File transfer, Settings
   if (hasSync) {
     count++;
+  }
+  if (MIRROR_ENABLED) {
+    count++;  // Mirror is the last item
   }
   if (!recentBooks.empty()) {
     count += recentBooks.size();
@@ -319,7 +328,11 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    if (hasSync && selectorIndex == getMenuItemCount() - 1) {
+    if (MIRROR_ENABLED && selectorIndex == getMenuItemCount() - 1) {
+      onMirrorOpen();
+      return;
+    }
+    if (hasSync && selectorIndex == getMenuItemCount() - 1 - (MIRROR_ENABLED ? 1 : 0)) {
       startOpdsSync(*this, renderer, mappedInput, silentRestart);
       return;
     }
@@ -550,6 +563,11 @@ void HomeActivity::render(RenderLock&&) {
     menuIcons.push_back(Transfer);
   }
 
+  if (MIRROR_ENABLED) {
+    menuItems.push_back("Mirror");  // not translated: keeps the fork out of lib/I18n
+    menuIcons.push_back(Transfer);
+  }
+
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
     menuItems.insert(menuItems.begin(), tr(STR_CONTINUE_READING));
@@ -595,3 +613,10 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
+
+void HomeActivity::onMirrorOpen() {
+#if MIRROR_ENABLED
+  // Replace Home (not push) so Home's buffers are freed before the BLE stack starts.
+  activityManager.replaceActivity(std::make_unique<MirrorActivity>(renderer, mappedInput));
+#endif
+}

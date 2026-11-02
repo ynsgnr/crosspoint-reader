@@ -1,0 +1,59 @@
+# Mirror feature checks (new file; see mirror/MIRROR_CHANGES.md). Independent of the upstream workflows.
+name: mirror
+
+on:
+  push:
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+  pull_request:
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+
+jobs:
+  host:
+    name: Host tests and simulator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and test
+        run: |
+          cmake -S mirror -B build-mirror -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-mirror -j"$(nproc)"
+          ctest --test-dir build-mirror --output-on-failure
+      - name: Simulator renders a transcript
+        run: build-mirror/mirror_sim mirror/test/golden/chat/typing.txt sim-out && test -s sim-out/frame_000.png
+
+  generated-files:
+    name: Generated files untouched
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: mirror/scripts/check-manifest.sh
+
+  spec-sync:
+    name: Generated files match the Android repo spec
+    runs-on: ubuntu-latest
+    # Needs read access to the (private) Android repo: add a repo secret RETINK_TOKEN. Skipped without it.
+    if: ${{ vars.RETINK_REPO != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: fork }
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.RETINK_REPO }}
+          token: ${{ secrets.RETINK_TOKEN }}
+          path: retink
+      - run: pip install pyyaml
+      - run: retink/scripts/sync-fork.sh --check "$GITHUB_WORKSPACE/fork"
+
+  firmware:
+    name: Firmware builds (mirror environments)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        env: [x4pro-mirror, mirror]
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.13' }
+      - run: pip install platformio
+      - run: pio run -e ${{ matrix.env }}

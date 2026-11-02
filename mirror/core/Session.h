@@ -1,0 +1,63 @@
+#pragma once
+// Device-side common layer: reassembly, version checks, sequence tracking, ack/resync/error, dispatch to the
+// active TemplateRenderer. Payloads are opaque here.
+#include <functional>
+#include <memory>
+#include <vector>
+
+#include "core/Envelope.h"
+#include "core/Gfx.h"
+#include "core/TemplateRegistry.h"
+
+namespace mirror {
+
+class Session {
+ public:
+  using SendFn = std::function<void(const std::vector<uint8_t>& frame)>;
+
+  Session(const TemplateRegistry& registry, SendFn send) : registry_(registry), send_(std::move(send)) {}
+
+  // Raw bytes from the phone, split anywhere. True when the renderer state changed.
+  bool feed(const uint8_t* data, size_t len);
+
+  // Use after dropping inbound bytes.
+  void requestResync() { emitResync(static_cast<uint8_t>(gen::kControlTemplateId), 0); }
+
+  // False when the template has no event for this button.
+  bool onButton(Button b);
+
+  // Null until the phone sends a full state.
+  TemplateRenderer* active() { return active_.get(); }
+  uint16_t lastApplied() const { return lastApplied_; }
+  // One-shot flags; either one means the next frame should be a full refresh.
+  bool takeTemplateSwitched() {
+    bool s = switched_;
+    switched_ = false;
+    return s;
+  }
+  bool takeResyncHappened() {
+    bool s = resync_;
+    resync_ = false;
+    return s;
+  }
+
+  std::vector<uint8_t> capabilities(const Gfx& gfx, const char* deviceName, uint16_t maxPayload) const;
+
+ private:
+  void handle(const Envelope& e, bool& changed);
+  void emit(uint8_t templateId, uint8_t schema, uint8_t flags, uint16_t base, const std::vector<uint8_t>& payload = {});
+  void emitError(uint8_t code, uint8_t detail);
+  void emitResync(uint8_t templateId, uint8_t schema);
+
+  const TemplateRegistry& registry_;
+  SendFn send_;
+  EnvelopeStreamParser parser_;
+  std::unique_ptr<TemplateRenderer> active_;
+  uint16_t lastApplied_ = 0;
+  uint16_t outSeq_ = 1;
+  uint32_t crcSeen_ = 0;
+  bool switched_ = false;
+  bool resync_ = false;
+};
+
+}  // namespace mirror

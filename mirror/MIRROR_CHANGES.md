@@ -1,0 +1,47 @@
+# MIRROR_CHANGES: upstream files touched by the mirror feature
+
+Everything else lives under `mirror/` (new files only). Without `-DCROSSPOINT_MIRROR=1` the firmware is the
+same as upstream: the hooks below are `if (MIRROR_ENABLED)` / `#if MIRROR_ENABLED` guarded (`MIRROR_ENABLED` is 0 without
+the flag) and no mirror header is included, so non-mirror environments need no extra include path.
+Only the `mirror` and `x4pro-mirror` PlatformIO environments set the flag.
+
+To check the list is complete after a rebase: `git diff --stat upstream/develop -- . ':!mirror'` must show only the files below.
+
+| Upstream file | Change | Why |
+| --- | --- | --- |
+| `platformio.ini` | `extra_configs` is now a two-line list that also names `mirror/platformio_mirror.ini` | Defines the `mirror` and `x4pro-mirror` environments (feature flag, NimBLE role flags, `build_src_filter` that compiles `mirror/`). All build configuration lives in that file. |
+| `src/activities/home/HomeActivity.h` | one method declaration, `onMirrorOpen()` | Home menu entry handler |
+| `src/activities/home/HomeActivity.cpp` | a local `#ifdef CROSSPOINT_MIRROR` block (defines `MIRROR_ENABLED`, includes `device/MirrorActivity.h`); `getMenuItemCount()` adds 1; `activateSelection` opens Mirror for the last item and moves the Sync check one position up; `render()` appends the "Mirror" item; `onMirrorOpen()` body (guarded) | The one Home menu entry (list themes) and the registration of the activity (`activityManager.replaceActivity(...)`; no `ActivityManager` edit) |
+| `src/components/CoverGridHomeUi.cpp`, `.h` | the same 5-line `MIRROR_ENABLED` block; tab loop 6 -> 7 slots, one icon-table entry, icon index mapping by "present" table, `tabItems` array size 7 | Same Home entry for the cover-grid theme (the X4 Pro default theme needs PSRAM) |
+
+New file outside `mirror/`: `.github/workflows/mirror.yml` (host tests, manifest check, spec sync, firmware builds).
+
+Not touched: `ActivityManager`, translations (`lib/I18n`: the menu label "Mirror" is a plain string, not translated),
+`partitions*.csv`, `src/main.cpp`, `lib/BlePageTurner`, the SDK submodule, any `sdkconfig`.
+
+## BLE stack: what the build already had and what the mirror changes
+
+* Upstream already builds NimBLE-Arduino 2.5.1 (the SDK's `BleKeyboardHost`, central only; `lib/BlePageTurner`).
+  Both NimBLE roles the mirror needs are compiled out by `-DCONFIG_BT_NIMBLE_ROLE_PERIPHERAL_DISABLED=1` and
+  `-DCONFIG_BT_NIMBLE_ROLE_BROADCASTER_DISABLED=1` (in `[ble_page_turner] build_flags`).
+  `mirror/platformio_mirror.ini` re-enables them for the mirror environments with `-U...` (a later `-U` wins), so no
+  upstream config line changes.
+* Coexistence with the page turner: `ActivityManager` calls `bleturner::beforeScreenChange()` before every screen
+  change, and the Mirror screen is not a reader or Home, so the page turner keeps its radio off while Mirror is open.
+  When Mirror closes it calls `NimBLEDevice::deinit(true)`; the page turner starts its own stack again by its normal rules.
+* MTU: requested at runtime (`NimBLEDevice::setMTU(247)`), not through sdkconfig, because the C3 core rebuild bakes
+  `CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=23` into `sdkconfig.h`.
+
+## Rebasing on upstream
+
+1. `git fetch upstream && git rebase upstream/develop` (or merge).
+2. Conflicts can only occur in the files above. Re-apply the hook by hand; each is a few lines. Search for
+   `MIRROR_ENABLED` and `Mirror` to find them.
+3. `git diff --stat upstream/develop -- . ':!mirror'` should list exactly the files in the table.
+4. Build both environments: `pio run -e mirror` and `pio run -e x4pro-mirror`; run the host tests (`mirror/README.md`).
+5. If upstream changed `HomeActivity` menu handling (for example, a new trailing item), keep Mirror as the last item
+   and keep the Sync check at `count - 1 - MIRROR_ENABLED`.
+
+## Known gaps / not verified on hardware
+
+See `mirror/docs/FINDINGS.md`, section "Not verified".
