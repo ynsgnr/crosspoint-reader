@@ -9,13 +9,13 @@
 
 namespace {
 constexpr char kDeviceName[] = "CrossPoint Mirror";
-constexpr uint16_t kMaxPayload = 2048;  // device-side cap reported to the phone; C3 heap-friendly
 }  // namespace
 
 void MirrorActivity::resetSession() {
   std::lock_guard<std::mutex> g(mutex_);
-  session_ = std::make_unique<mirror::Session>(mirror::TemplateRegistry::instance(),
-                                               [this](const std::vector<uint8_t>& frame) { ble_.send(frame); });
+  session_ = std::make_unique<mirror::Session>(
+      mirror::TemplateRegistry::instance(), [this](const std::vector<uint8_t>& frame) { ble_.send(frame); },
+      kMaxPayload);
   forceFull_ = true;
   statusShown_ = false;
 }
@@ -24,9 +24,7 @@ void MirrorActivity::onEnter() {
   Activity::onEnter();
   // The page turner's radio is already off: it stops before every screen change and stays off outside readers.
   resetSession();
-  mirror::Session probe(mirror::TemplateRegistry::instance(), [](const std::vector<uint8_t>&) {});
-  const auto caps = probe.capabilities(gfx_, kDeviceName, kMaxPayload);
-  switch (ble_.start(kDeviceName, caps)) {
+  switch (ble_.start(kDeviceName, session_->capabilities(gfx_, kDeviceName))) {
     case mirror::MirrorBle::StartResult::Ok:
       startup_ = Startup::Ok;
       break;
@@ -60,9 +58,10 @@ void MirrorActivity::loop() {
     bondsForgotten_ = true;
     redraw = true;
   }
-  if (ble_.connected() != wasConnected_) {
+  if (ble_.connected() != wasConnected_ || ble_.connectionEpoch() != seenEpoch_) {
     wasConnected_ = ble_.connected();
-    if (!wasConnected_) resetSession();  // a new connection starts a new sequence space
+    seenEpoch_ = ble_.connectionEpoch();
+    resetSession();  // every connection starts a new sequence space; a disconnect returns to the waiting screen
     redraw = true;
   }
 
@@ -106,13 +105,18 @@ void MirrorActivity::drawStatus() {
         line(buf, true);
         line("Type it on your phone.");
       } else if (ble_.connected()) {
-        line("Connected. Waiting for content...");
+        line("Connected.");
+        line("Open a chat app on your phone.");
       } else {
         line("Waiting for your phone");
         line(std::string("Name: ") + kDeviceName);
-        line(std::to_string(ble_.bondCount()) + " paired phone(s)");
+        const int bonds = ble_.bondCount();
+        line(bonds ? std::to_string(bonds) + " paired" : "No phone paired yet");
         y += lh / 2;
-        line(bondsForgotten_ ? "Paired phones forgotten." : "Hold Confirm: forget phones");
+        if (bondsForgotten_)
+          line("Paired phones forgotten.");
+        else if (bonds)
+          line("Hold Confirm: forget phones");
       }
       break;
     }
@@ -121,15 +125,14 @@ void MirrorActivity::drawStatus() {
   line("Back: leave Mirror");
 }
 
-void MirrorActivity::render(RenderLock&&) {
-  std::lock_guard<std::mutex> g(mutex_);
+mirror::RefreshKind MirrorActivity::drawFrame() {
   mirror::TemplateRenderer* t = session_ ? session_->active() : nullptr;
   if (!t) {
     drawStatus();
-    renderer.displayBuffer(statusShown_ ? HalDisplay::FAST_REFRESH : HalDisplay::HALF_REFRESH);
+    const bool first = !statusShown_;
     statusShown_ = true;
     forceFull_ = true;
-    return;
+    return first ? mirror::RefreshKind::Full : mirror::RefreshKind::Partial;
   }
   statusShown_ = false;
   forceFull_ |= session_->takeTemplateSwitched();
@@ -137,16 +140,17 @@ void MirrorActivity::render(RenderLock&&) {
   const mirror::DirtyRects dirty = t->render(gfx_);
   const mirror::RefreshPlan plan = policy_.plan(dirty, gfx_.width(), gfx_.height(), t->refreshOverrides(), forceFull_);
   forceFull_ = false;
-  switch (plan.kind) {
-    case mirror::RefreshKind::None:
-      break;
-    // FAST_REFRESH only drives changed pixels, so a typed letter does not flash the page.
-    case mirror::RefreshKind::Partial:
-      renderer.displayBuffer(HalDisplay::FAST_REFRESH);
-      break;
-    case mirror::RefreshKind::Full:
-      renderer.displayBuffer(HalDisplay::HALF_REFRESH);
-      break;
+  return plan.kind;
+}
+
+void MirrorActivity::render(RenderLock&&) {
+  mirror::RefreshKind kind;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);  // not held during the refresh: it blocks for hundreds of ms
+    kind = drawFrame();
   }
+  // FAST_REFRESH only drives changed pixels, so a typed letter does not flash the page.
+  if (kind == mirror::RefreshKind::Partial) renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+  if (kind == mirror::RefreshKind::Full) renderer.displayBuffer(HalDisplay::HALF_REFRESH);
 }
 #endif

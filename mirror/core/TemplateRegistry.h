@@ -20,7 +20,9 @@ class TemplateRegistry {
     static TemplateRegistry r;
     return r;
   }
-  void add(const TemplateEntry& e) { entries_.push_back(e); }
+  void add(const TemplateEntry& e) {
+    if (!find(e.id)) entries_.push_back(e);  // a duplicate id keeps the first registration
+  }
   const TemplateEntry* find(uint8_t id) const {
     for (const auto& e : entries_)
       if (e.id == id) return &e;

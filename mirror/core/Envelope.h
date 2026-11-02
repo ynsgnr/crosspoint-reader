@@ -27,7 +27,7 @@ std::vector<uint8_t> encodeEnvelope(const Envelope& e);
 // drops one byte and rescans for the next magic; crcErrors counts CRC failures only.
 class EnvelopeStreamParser {
  public:
-  explicit EnvelopeStreamParser(size_t maxPayload = 4096) : maxPayload_(maxPayload) {}
+  explicit EnvelopeStreamParser(size_t maxPayload = 2048) : maxPayload_(maxPayload) {}
   void feed(const uint8_t* data, size_t len, std::vector<Envelope>& out);
   uint32_t crcErrors() const { return crcErrors_; }
   uint32_t framingErrors() const { return framingErrors_; }

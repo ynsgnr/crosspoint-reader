@@ -37,7 +37,7 @@ bool ChatRenderer::applyOp(ChatState& s, const Op& op) {
     const size_t pos = d->pos, del = d->del;
     if (pos > s.draft.size() || del > s.draft.size() - pos) return false;
     if (!utf8::isBoundary(s.draft, pos) || !utf8::isBoundary(s.draft, pos + del)) return false;
-    if (s.draft.size() - del + d->ins.size() > 1024) return false;
+    if (s.draft.size() - del + d->ins.size() > kMaxDraftBytes) return false;
     s.draft.replace(pos, del, d->ins);
     return true;
   }
@@ -64,13 +64,17 @@ bool ChatRenderer::onDiff(const uint8_t* payload, size_t len) {
   Reader r(payload, len);
   const uint32_t n = r.readUvarint();
   if (!r.ok() || n > kMaxOpsPerDiff) return false;
-  ChatState work = state_;  // all-or-nothing: the committed state never holds a half-applied diff
+  // A single op (a typed letter) applies in place: applyOp leaves the state untouched on failure.
+  // Several ops apply to a copy so a half-applied diff is never committed.
+  ChatState copy;
+  if (n > 1) copy = state_;
+  ChatState& target = n > 1 ? copy : state_;
   for (uint32_t i = 0; i < n; ++i) {
     Op op;
-    if (!decodeOp(r, op) || !applyOp(work, op)) return false;
+    if (!decodeOp(r, op) || !applyOp(target, op)) return false;
   }
   if (!r.atEnd()) return false;
-  state_ = std::move(work);
+  if (n > 1) state_ = std::move(copy);
   return true;
 }
 
@@ -90,35 +94,37 @@ void paint(Gfx& g, const Item& it) {
 
 DirtyRects ChatRenderer::render(Gfx& gfx) {
   std::vector<Item> items = layout(gfx, state_);
-  // Draw the badge background before its text: bars first keeps white-on-black text visible.
+  // Bars first: the unread badge's white text must land on its black box.
   std::stable_sort(items.begin(), items.end(), [](const Item& a, const Item& b) {
     return (a.kind == Item::Kind::Text) < (b.kind == Item::Kind::Text);
   });
   gfx.clear();
-  for (const Item& it : items) paint(gfx, it);
+  std::vector<uint64_t> keys;
+  keys.reserve(items.size());
+  for (const Item& it : items) {
+    paint(gfx, it);
+    keys.push_back(it.key());
+  }
 
   DirtyRects d;
   if (!havePrev_ || prevW_ != gfx.width() || prevH_ != gfx.height()) {
     d.full = true;
   } else {
-    // Items present in only one of the two frames changed pixels. Matching by key makes a shifted line dirty
-    // at both its old and new position, and an untouched line clean.
+    // An item present in only one of the two frames changed pixels: a shifted line is dirty at its old and new
+    // position, an untouched line is clean.
     std::vector<bool> used(prev_.size(), false);
-    for (const Item& n : items) {
-      const uint64_t k = n.key();
+    for (size_t n = 0; n < items.size(); ++n) {
       bool matched = false;
-      for (size_t i = 0; i < prev_.size(); ++i) {
-        if (!used[i] && prev_[i].key() == k) {
-          used[i] = matched = true;
-          break;
-        }
+      for (size_t i = 0; i < prev_.size() && !matched; ++i) {
+        if (!used[i] && prevKeys_[i] == keys[n]) used[i] = matched = true;
       }
-      if (!matched) d.rects.push_back(n.r);
+      if (!matched) d.rects.push_back(items[n].r);
     }
     for (size_t i = 0; i < prev_.size(); ++i)
       if (!used[i]) d.rects.push_back(prev_[i].r);
   }
   prev_ = std::move(items);
+  prevKeys_ = std::move(keys);
   havePrev_ = true;
   prevW_ = gfx.width();
   prevH_ = gfx.height();

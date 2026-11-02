@@ -28,7 +28,9 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override { b_.onDisconnected(); }
   void onMTUChange(uint16_t mtu, NimBLEConnInfo&) override { b_.onMtu(mtu); }
   uint32_t onPassKeyDisplay() override { return b_.onPasskeyDisplay(); }
-  void onAuthenticationComplete(NimBLEConnInfo& info) override { b_.onAuthComplete(info.isEncrypted()); }
+  void onAuthenticationComplete(NimBLEConnInfo& info) override {
+    b_.onAuthComplete(info.isAuthenticated(), info.getConnHandle());
+  }
 
  private:
   MirrorBle& b_;
@@ -74,12 +76,12 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   server_->setCallbacks(serverCallbacks, false);
   server_->advertiseOnDisconnect(true);
   NimBLEService* svc = server_->createService(gen::kUuidService);
-  NimBLECharacteristic* data =
-      svc->createCharacteristic(gen::kUuidData, NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC, 512);
+  NimBLECharacteristic* data = svc->createCharacteristic(
+      gen::kUuidData, NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN, 512);
   data->setCallbacks(dataCallbacks);
   eventChar_ = svc->createCharacteristic(gen::kUuidEvent, NIMBLE_PROPERTY::NOTIFY, 512);
-  NimBLECharacteristic* caps =
-      svc->createCharacteristic(gen::kUuidCaps, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC, 512);
+  NimBLECharacteristic* caps = svc->createCharacteristic(
+      gen::kUuidCaps, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN, 512);
   caps->setValue(capabilities.data(), capabilities.size());
   server_->start();
 
@@ -92,6 +94,10 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
     server_ = nullptr;
     eventChar_ = nullptr;
     return StartResult::Failed;
+  }
+  {
+    std::lock_guard<std::mutex> g(mutex_);
+    inbound_.reserve(kInboundCap);  // grown here, not on the NimBLE host task
   }
   running_ = true;
   connected_ = false;
@@ -158,8 +164,14 @@ void MirrorBle::onWrite(const uint8_t* data, size_t len) {
 }
 
 void MirrorBle::onConnected(uint16_t handle) {
+  {
+    std::lock_guard<std::mutex> g(mutex_);  // bytes of a previous link must not reach the new session
+    inbound_.clear();
+    overflow_ = false;
+  }
   connHandle_ = handle;
   mtu_ = 23;
+  epoch_++;
   connected_ = true;
   statusChanged_ = true;
 }
@@ -179,9 +191,11 @@ uint32_t MirrorBle::onPasskeyDisplay() {
   return code;
 }
 
-void MirrorBle::onAuthComplete(bool) {
+void MirrorBle::onAuthComplete(bool authenticated, uint16_t handle) {
   passkey_ = -1;
   statusChanged_ = true;
+  // Encryption alone is not enough: a Just Works bond has no passkey and could be made by anyone nearby.
+  if (!authenticated && server_) server_->disconnect(handle);
 }
 
 }  // namespace mirror

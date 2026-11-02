@@ -22,6 +22,8 @@ class MirrorBle {
   bool running() const { return running_; }
 
   bool connected() const { return connected_.load(); }
+  // Changes on every new connection, so a disconnect and reconnect between two loop passes is still noticed.
+  uint32_t connectionEpoch() const { return epoch_.load(); }
   // Moves the phone's bytes into `out`; `overflowed` when some were dropped.
   bool drain(std::vector<uint8_t>& out, bool& overflowed);
   // Notifies one frame, split to the MTU.
@@ -40,11 +42,12 @@ class MirrorBle {
   void onDisconnected();
   void onMtu(uint16_t mtu);
   uint32_t onPasskeyDisplay();
-  void onAuthComplete(bool encrypted);
+  void onAuthComplete(bool authenticated, uint16_t handle);
 
  private:
   bool running_ = false;
   std::atomic<bool> connected_{false};
+  std::atomic<uint32_t> epoch_{0};
   std::atomic<bool> statusChanged_{false};
   std::atomic<int32_t> passkey_{-1};
   std::atomic<uint16_t> connHandle_{0xFFFF};

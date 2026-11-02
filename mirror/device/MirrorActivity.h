@@ -25,6 +25,9 @@ class MirrorActivity final : public Activity {
  private:
   void resetSession();
   void drawStatus();
+  mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
+
+  static constexpr uint16_t kMaxPayload = 2048;
 
   mirror::GfxAdapter gfx_;
   mirror::MirrorBle ble_;
@@ -32,6 +35,7 @@ class MirrorActivity final : public Activity {
   std::unique_ptr<mirror::Session> session_;
   std::mutex mutex_;  // session_/renderer state: written by loop(), read by the render task
   enum class Startup { Ok, NoMemory, Failed } startup_ = Startup::Failed;
+  uint32_t seenEpoch_ = 0;
   bool wasConnected_ = false;
   bool forceFull_ = true;
   bool statusShown_ = false;

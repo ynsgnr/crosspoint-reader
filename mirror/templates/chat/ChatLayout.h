@@ -20,7 +20,7 @@ struct Item {
 
 struct LayoutMetrics {
   int margin = 8;
-  int barWidth = 3;
+  int barWidth = 4;
   int draftLines = 3;  // fixed: typing never moves the message list
 };
 

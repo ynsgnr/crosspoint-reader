@@ -1,7 +1,7 @@
 # mirror/: BLE text mirror for the Xteink X4 / X4 Pro
 
 Device side of `ynsgnr/retink`. The Mirror screen (last Home menu item) advertises as `CrossPoint Mirror`, pairs
-with a passkey shown on screen, and renders the template the phone sends. Advertising and the connection exist only
+with a passkey shown on screen (authenticated pairing; unauthenticated peers are disconnected), and renders the template the phone sends. Advertising and the connection exist only
 while the screen is open. Upstream touchpoints: `MIRROR_CHANGES.md`. Findings and unverified items: `docs/FINDINGS.md`.
 
 ```
@@ -27,6 +27,10 @@ mirror/scripts/check-manifest.sh                                    # generated 
 ```
 The tests replay the Kotlin-recorded transcripts (full round trip, diffs, dropped message, CRC corruption, schema
 mismatch, scroll events) byte for byte through the real `Session` and `ChatRenderer`.
+
+## Chat screen
+Title row (scroll marker `vN` when newer messages are below, unread badge), messages (incoming left with a thin bar, own right-aligned
+as one block with a thick bar), a fixed 3-line draft area with cursor. Up/Down (or the page buttons) scroll; Back leaves.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template

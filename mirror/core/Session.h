@@ -15,7 +15,10 @@ class Session {
  public:
   using SendFn = std::function<void(const std::vector<uint8_t>& frame)>;
 
-  Session(const TemplateRegistry& registry, SendFn send) : registry_(registry), send_(std::move(send)) {}
+  static constexpr uint16_t kDefaultMaxPayload = 2048;  // reported to the phone, enforced on input
+
+  Session(const TemplateRegistry& registry, SendFn send, uint16_t maxPayload = kDefaultMaxPayload)
+      : registry_(registry), send_(std::move(send)), maxPayload_(maxPayload), parser_(maxPayload) {}
 
   // Raw bytes from the phone, split anywhere. True when the renderer state changed.
   bool feed(const uint8_t* data, size_t len);
@@ -41,7 +44,7 @@ class Session {
     return s;
   }
 
-  std::vector<uint8_t> capabilities(const Gfx& gfx, const char* deviceName, uint16_t maxPayload) const;
+  std::vector<uint8_t> capabilities(const Gfx& gfx, const char* deviceName) const;
 
  private:
   void handle(const Envelope& e, bool& changed);
@@ -51,11 +54,13 @@ class Session {
 
   const TemplateRegistry& registry_;
   SendFn send_;
+  uint16_t maxPayload_;
   EnvelopeStreamParser parser_;
   std::unique_ptr<TemplateRenderer> active_;
   uint16_t lastApplied_ = 0;
   uint16_t outSeq_ = 1;
   uint32_t crcSeen_ = 0;
+  bool awaitingFull_ = false;  // resync requested: diffs are dropped until a full state arrives
   bool switched_ = false;
   bool resync_ = false;
 };

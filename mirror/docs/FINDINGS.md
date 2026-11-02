@@ -15,12 +15,14 @@
 | `x4pro` upstream baseline | 5,428,146 (82.8%) | 111,740 |
 | `x4pro` with the hooks, flag off | 5,428,242 (+96 B) | 111,740 |
 | `x4pro-mirror` | 5,455,514 (+27,368 B, 83.2%) | 111,772 (+32 B) |
+| `default` (X4, ESP32-C3) stock | 5,584,045 (85.2%) | 66,680 |
+| `mirror` (X4, ESP32-C3) | 5,626,831 (+42,786 B, 85.9%) | 66,960 (+280 B) |
 
-* Headroom on the X4 Pro: about 1.1 MB flash. Runtime heap use of the NimBLE host + GATT server was **not measured**; the S3 profile
+* Headroom: about 1.1 MB flash on the X4 Pro, about 0.9 MB on the X4. Runtime heap use of the NimBLE host + GATT server was **not measured**; the S3 profile
   places the NimBLE host in PSRAM (`scripts/s3_nimble_psram.h`). `MirrorBle` refuses to start below a 24 KB largest free block
   (unmeasured estimate).
-* The X4 (ESP32-C3) build could not be run in the sandbox: PlatformIO 6.2.0 fails in the core rebuild
-  (`No module named 'SCons.Tool.FortranCommon'`), also on the unmodified `env:default`. C3 flash/RAM and heap are unknown.
+* X4 (ESP32-C3) builds with pioarduino core 6.1.19 (PlatformIO 6.2.0 from PyPI fails in the core rebuild on `SCons.Tool.FortranCommon`, also for the
+  unmodified `env:default`; upstream CI pins 6.1.19 and the mirror workflow copies that). Static RAM only: C3 heap with the BLE server up is unmeasured.
 
 ## Display
 * `HalDisplay` modes: `FULL_REFRESH`, `HALF_REFRESH`, `FAST_REFRESH`. FAST is the SDK's differential waveform against the
@@ -41,7 +43,7 @@ registration: `activityManager.replaceActivity(...)` starts one. Replace (not pu
 ## Not verified
 * Anything on hardware or a phone: pairing UX, advertising, connection parameters, throughput, real refresh quality and ghosting
   cadence, heap headroom, battery. No emulator was run (no KVM); the app was compiled (`assembleDebug`) and its logic unit-tested on the JVM.
-* The C3 build (above). `-U` role flags on the C3 core rebuild path.
+* Running the C3 image: it compiles and links; whether the `-U` role flags and BLE peripheral work on the C3 controller is untested.
 * The `CoverGridHomeUi` change was compiled, not seen on a device. Mirror's cover-grid icon reuses the Transfer icon.
 * App resource ids in `ChatAppSelectors` (from memory, unvalidated); Telegram needs a content-description parser.
 * `FLAG_SECURE` probe behaviour on real devices (needs API 34+; rate limited).

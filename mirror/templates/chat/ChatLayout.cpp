@@ -93,110 +93,119 @@ std::string clipToWidth(const Gfx& g, Font f, std::string s, int maxWidth) {
 }
 }  // namespace
 
+namespace {
+const char* const kEllipsis = "\xE2\x80\xA6";
+
+Item textItem(Rect r, Font font, std::string text, bool black = true) {
+  Item i;
+  i.r = r;
+  i.font = font;
+  i.text = std::move(text);
+  i.black = black;
+  return i;
+}
+
+// Title, scroll marker and unread badge on one row, rule below. Returns the y of the rule's bottom edge.
+int layoutHeader(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics& m, std::vector<Item>& out) {
+  const int W = g.width(), titleH = g.lineHeight(Font::Title), bodyH = g.lineHeight(Font::Body);
+  int right = W - m.margin;
+  if (s.unread) {
+    const std::string badge = std::to_string(s.unread);
+    const int badgeW = g.textWidth(Font::Body, badge) + 12;
+    right -= badgeW;
+    const Rect box{right, 4 + (titleH - bodyH - 4) / 2, badgeW, bodyH + 4};
+    out.push_back(shape(Item::Kind::Bar, box));
+    out.push_back(textItem({box.x + 6, box.y + 2, badgeW - 12, bodyH}, Font::Body, badge, false));
+    right -= 8;
+  }
+  if (s.scroll) {  // newer messages are below the view
+    const std::string marker = "v" + std::to_string(s.scroll);
+    const int markerW = g.textWidth(Font::Small, marker);
+    out.push_back(
+        textItem({right - markerW, 4 + (titleH - g.lineHeight(Font::Small)) / 2, markerW, g.lineHeight(Font::Small)},
+                 Font::Small, marker));
+    right -= markerW + 8;
+  }
+  const int titleW = right - m.margin;
+  out.push_back(textItem({m.margin, 4, titleW, titleH}, Font::Title, clipToWidth(g, Font::Title, s.title, titleW)));
+  const int bottom = 4 + titleH + 4;
+  out.push_back(shape(Item::Kind::Rule, {0, bottom, W, 2}));
+  return bottom;
+}
+
+// Rule, a fixed-height draft area showing the last lines, and the cursor. Fixed height: typing never moves the list.
+void layoutDraft(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics& m, int top, std::vector<Item>& out) {
+  const int W = g.width(), bodyH = g.lineHeight(Font::Body);
+  out.push_back(shape(Item::Kind::Rule, {0, top, W, 2}));
+  const int promptW = g.textWidth(Font::Body, "> ");
+  const int textW = W - 2 * m.margin - promptW;
+  const auto lines = wrapText(g, Font::Body, s.draft, textW - 4);  // never empty: "" wraps to one empty line
+  const size_t first = lines.size() > static_cast<size_t>(m.draftLines) ? lines.size() - m.draftLines : 0;
+  int y = top + 5;
+  for (size_t i = first; i < lines.size(); ++i, y += bodyH) {
+    if (i == first) out.push_back(textItem({m.margin, y, promptW, bodyH}, Font::Body, first == 0 ? ">" : kEllipsis));
+    out.push_back(textItem({m.margin + promptW, y, textW, bodyH}, Font::Body, lines[i]));
+  }
+  const int cursorX = m.margin + promptW + g.textWidth(Font::Body, lines.back()) + 2;
+  const int cursorY = top + 5 + static_cast<int>(lines.size() - 1 - first) * bodyH + 2;
+  out.push_back(shape(Item::Kind::Bar, {std::min(cursorX, W - m.margin - 2), cursorY, 2, bodyH - 4}));
+}
+
+// Newest message at the bottom, skipping `scroll` newest ones, filling upwards. A message that does not fit
+// shows its last lines under a line holding only an ellipsis.
+void layoutBody(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics& m, int top, int bottom,
+                std::vector<Item>& out) {
+  const int W = g.width(), bodyH = g.lineHeight(Font::Body), smallH = g.lineHeight(Font::Small);
+  const int indent = m.barWidth + 6, textW = W - 2 * m.margin - indent;
+  if (s.messages.empty()) {
+    out.push_back(textItem({m.margin, bottom - smallH, textW, smallH}, Font::Small, "No messages yet"));
+    return;
+  }
+  const size_t skip = std::min<size_t>(s.scroll, s.messages.size() - 1);
+  for (size_t idx = s.messages.size() - skip; idx-- > 0;) {
+    const auto& msg = s.messages[idx];
+    const auto lines = wrapText(g, Font::Body, msg.text, textW);
+    const std::string meta = clipToWidth(
+        g, Font::Small, (msg.outgoing ? std::string("Me") : msg.sender) + "  " + formatTime(msg.timestamp), textW);
+    int blockTop = bottom - (smallH + static_cast<int>(lines.size()) * bodyH + 6);
+    size_t firstLine = 0;
+    bool cut = false;
+    if (blockTop < top) {
+      const int fit = (bottom - top - smallH - 6) / bodyH;
+      if (fit < 2) break;
+      firstLine = lines.size() - static_cast<size_t>(fit - 1);
+      cut = true;
+      blockTop = top;
+    }
+    std::vector<std::string> shown;
+    if (cut) shown.push_back(kEllipsis);
+    shown.insert(shown.end(), lines.begin() + static_cast<std::ptrdiff_t>(firstLine), lines.end());
+
+    // Outgoing blocks are right-aligned as a whole; lines stay left-aligned inside the block.
+    int blockW = g.textWidth(Font::Small, meta);
+    for (const auto& l : shown) blockW = std::max(blockW, g.textWidth(Font::Body, l));
+    const int x = msg.outgoing ? W - m.margin - indent - blockW : m.margin + indent;
+    out.push_back(textItem({x, blockTop, blockW, smallH}, Font::Small, meta));
+    int y = blockTop + smallH;
+    for (const auto& l : shown) {
+      out.push_back(textItem({x, y, blockW, bodyH}, Font::Body, l));
+      y += bodyH;
+    }
+    const Rect bar = msg.outgoing ? Rect{W - m.margin - m.barWidth, blockTop, m.barWidth, y - blockTop}
+                                  : Rect{m.margin, blockTop, 2, y - blockTop};
+    out.push_back(shape(Item::Kind::Bar, bar));
+    bottom = blockTop - 4;
+    if (cut || bottom <= top) break;
+  }
+}
+}  // namespace
+
 std::vector<Item> layout(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics& m) {
   std::vector<Item> items;
-  const int W = g.width(), H = g.height();
-  const int titleH = g.lineHeight(Font::Title), bodyH = g.lineHeight(Font::Body), smallH = g.lineHeight(Font::Small);
-  const int contentW = W - 2 * m.margin;
-
-  // Header: title left, unread badge right, rule below.
-  std::string badge = s.unread ? std::to_string(s.unread) : "";
-  const int badgeW = badge.empty() ? 0 : g.textWidth(Font::Body, badge) + 12;
-  Item t;
-  t.r = {m.margin, 4, contentW - badgeW, titleH};
-  t.font = Font::Title;
-  t.text = clipToWidth(g, Font::Title, s.title, t.r.w);
-  items.push_back(t);
-  if (!badge.empty()) {
-    Item bg;
-    bg.kind = Item::Kind::Bar;
-    bg.r = {W - m.margin - badgeW, 4 + (titleH - bodyH - 4) / 2, badgeW, bodyH + 4};
-    items.push_back(bg);
-    Item bt;
-    bt.r = {bg.r.x + 6, bg.r.y + 2, badgeW - 12, bodyH};
-    bt.text = badge;
-    bt.black = false;
-    items.push_back(bt);
-  }
-  const int headerBottom = 4 + titleH + 4;
-  items.push_back(shape(Item::Kind::Rule, {0, headerBottom, W, 2}));
-
-  // Footer: rule + fixed draft area (last N wrapped lines) + cursor.
-  const int draftH = m.draftLines * bodyH + 6;
-  const int footerTop = H - draftH - 6;
-  items.push_back(shape(Item::Kind::Rule, {0, footerTop, W, 2}));
-  {
-    const int promptW = g.textWidth(Font::Body, "> ");
-    auto lines = wrapText(g, Font::Body, s.draft, contentW - promptW - 4);
-    const size_t first = lines.size() > static_cast<size_t>(m.draftLines) ? lines.size() - m.draftLines : 0;
-    int y = footerTop + 5;
-    for (size_t i = first; i < lines.size(); ++i, y += bodyH) {
-      Item d;
-      d.r = {m.margin + promptW, y, contentW - promptW, bodyH};
-      d.text = lines[i];
-      items.push_back(d);
-      if (i == first) {
-        Item p;
-        p.r = {m.margin, y, promptW, bodyH};
-        p.text = first == 0 ? ">" : "\xE2\x80\xA6";
-        items.push_back(p);
-      }
-    }
-    if (lines.empty() || (lines.size() == 1 && lines[0].empty())) {
-      Item p;
-      p.r = {m.margin, footerTop + 5, promptW, bodyH};
-      p.text = ">";
-      items.push_back(p);
-    }
-    const size_t lastIdx = lines.empty() ? 0 : lines.size() - 1;
-    const int cy = footerTop + 5 + static_cast<int>(lastIdx - std::min(lastIdx, first)) * bodyH;
-    const int cx = m.margin + promptW + (lines.empty() ? 0 : g.textWidth(Font::Body, lines.back())) + 2;
-    items.push_back(shape(Item::Kind::Bar, {std::min(cx, W - m.margin - 2), cy + 2, 2, bodyH - 4}));
-  }
-
-  // Body: newest message at the bottom, skipping `scroll` newest ones; fill upwards.
-  const int bodyTop = headerBottom + 4, bodyBottom = footerTop - 4;
-  int cursorBottom = bodyBottom;
-  const size_t total = s.messages.size();
-  const size_t skip = std::min<size_t>(s.scroll, total ? total - 1 : 0);
-  for (size_t idx = total - skip; idx-- > 0;) {
-    const auto& msg = s.messages[idx];
-    const int indent = m.barWidth + 6;
-    const int textW = contentW - indent;
-    auto lines = wrapText(g, Font::Body, msg.text, textW);
-    const int blockH = smallH + static_cast<int>(lines.size()) * bodyH + 6;
-    int top = cursorBottom - blockH;
-    size_t dropLines = 0;
-    if (top < bodyTop) {  // partly visible: keep the last lines that fit, mark the cut
-      const int fit = (cursorBottom - bodyTop - smallH - 6) / bodyH;
-      if (fit < 1) break;
-      dropLines = lines.size() - static_cast<size_t>(fit);
-      top = bodyTop;
-    }
-    const int x0 = msg.outgoing ? m.margin : m.margin + indent;
-    std::string meta = (msg.outgoing ? std::string("Me") : msg.sender) + "  " + formatTime(msg.timestamp);
-    Item mi;
-    mi.r = {x0, top, textW, smallH};
-    mi.font = Font::Small;
-    mi.text = clipToWidth(g, Font::Small, meta, textW);
-    if (msg.outgoing) mi.r.x = W - m.margin - indent - g.textWidth(Font::Small, mi.text);
-    items.push_back(mi);
-    int y = top + smallH;
-    for (size_t li = dropLines; li < lines.size(); ++li, y += bodyH) {
-      Item l;
-      l.r = {x0, y, textW, bodyH};
-      l.text = (li == dropLines && dropLines > 0) ? "\xE2\x80\xA6 " + lines[li] : lines[li];
-      if (msg.outgoing) l.r.x = W - m.margin - indent - g.textWidth(Font::Body, l.text);
-      items.push_back(l);
-    }
-    // Direction bar: outgoing = solid bar on the right, incoming = thin rule on the left.
-    Item bar;
-    bar.kind = Item::Kind::Bar;
-    bar.r = msg.outgoing ? Rect{W - m.margin - m.barWidth, top, m.barWidth, y - top} : Rect{m.margin, top, 1, y - top};
-    items.push_back(bar);
-    cursorBottom = top - 4;
-    if (dropLines > 0 || cursorBottom <= bodyTop) break;
-  }
+  const int headerBottom = layoutHeader(g, s, m, items);
+  const int draftTop = g.height() - m.draftLines * g.lineHeight(Font::Body) - 12;
+  layoutDraft(g, s, m, draftTop, items);
+  layoutBody(g, s, m, headerBottom + 4, draftTop - 4, items);
   return items;
 }
 

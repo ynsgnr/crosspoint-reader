@@ -24,6 +24,7 @@ void Session::emitError(uint8_t code, uint8_t detail) {
 
 void Session::emitResync(uint8_t templateId, uint8_t schema) {
   resync_ = true;
+  awaitingFull_ = true;
   emit(templateId, schema, gen::kFlagResync, lastApplied_);
 }
 
@@ -60,12 +61,14 @@ void Session::handle(const Envelope& e, bool& changed) {
       switched_ = true;
     }
   } else if (e.has(gen::kFlagDiff)) {
+    if (awaitingFull_) return;  // the phone's full reply is on its way; one resync per gap is enough
     if (!sameTemplate || e.baseSeq != lastApplied_)
       return emitResync(e.templateId, target ? target->schemaVersion() : t->maxSchema);
     if (!target->onDiff(e.payload.data(), e.payload.size())) return emitResync(e.templateId, target->schemaVersion());
   } else {
     return;
   }
+  if (e.has(gen::kFlagFull)) awaitingFull_ = false;
   lastApplied_ = e.seq;
   changed = true;
   if (e.has(gen::kFlagAckRequest)) emit(e.templateId, e.schemaVersion, gen::kFlagAck, e.seq);
@@ -79,10 +82,10 @@ bool Session::onButton(Button b) {
   return true;
 }
 
-std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceName, uint16_t maxPayload) const {
+std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceName) const {
   gen::Capabilities c;
   c.protocol_version = gen::kProtocolVersion;
-  c.max_payload = maxPayload;
+  c.max_payload = maxPayload_;
   c.screen_width = static_cast<uint16_t>(gfx.width());
   c.screen_height = static_cast<uint16_t>(gfx.height());
   c.device_name = deviceName;

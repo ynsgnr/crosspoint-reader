@@ -162,11 +162,12 @@ static void testRegistryAndCaps() {
   CHECK(reg.find(1) != nullptr && reg.find(2) == nullptr);
   sim::SimGfx g(480, 800);
   Session s(reg, [](const std::vector<uint8_t>&) {});
-  auto caps = s.capabilities(g, "CrossPoint", 2048);
+  auto caps = s.capabilities(g, "CrossPoint");
   Reader r(caps.data(), caps.size());
   gen::Capabilities c;
   CHECK(gen::Capabilities::decode(r, c) && r.atEnd());
-  CHECK(c.screen_width == 480 && c.templates.size() == 1 && c.templates[0].id == 1 && c.fonts.size() == 3);
+  CHECK(c.max_payload == 2048 && c.screen_width == 480 && c.templates.size() == 1 && c.templates[0].id == 1 &&
+        c.fonts.size() == 3);
 }
 
 namespace {
@@ -236,18 +237,95 @@ static void testSessionResyncCases() {
   CHECK(d.chatState().state().draft.empty());
 
   d.out.clear();
-  d.draftDiff(11, 10, 99, 0, "x");  // invalid for the state: position past the end
-  CHECK(d.out.size() == 1 && d.out[0].has(gen::kFlagResync) && d.session.lastApplied() == 10);
+  d.draftDiff(13, 12, 0, 0, "y");  // more diffs in flight: dropped, no resync storm
+  d.draftDiff(14, 13, 0, 0, "z");
+  CHECK(d.out.empty() && d.chatState().state().draft.empty());
+
+  d.full(15, {});                   // the phone's full reply ends the wait
+  d.draftDiff(16, 15, 99, 0, "x");  // invalid for the state: position past the end
+  CHECK(d.out.size() == 1 && d.out[0].has(gen::kFlagResync) && d.session.lastApplied() == 15);
 
   d.out.clear();
   d.session.requestResync();
   CHECK(d.out[0].templateId == 0 && d.out[0].has(gen::kFlagResync));
 
+  d.full(20, {});
   d.out.clear();
   auto bad = encodeEnvelope(Envelope{});
   bad[12] ^= 1;
   d.session.feed(bad.data(), bad.size());  // CRC failure
   CHECK(d.out.size() == 1 && d.out[0].templateId == 0 && d.out[0].has(gen::kFlagResync));
+}
+
+static void testStreamParserRejectsOversizedLengths() {
+  Envelope e;
+  e.templateId = 1;
+  e.schemaVersion = 1;
+  e.flags = gen::kFlagFull;
+  e.seq = 1;
+  e.payload = {1, 2, 3};
+  const auto frame = encodeEnvelope(e);
+  // A stray magic byte with an absurd length must not swallow the real frame behind it.
+  std::vector<uint8_t> bytes = {static_cast<uint8_t>(gen::kMagic), 1, 1, 1, 1, 0, 0, 0, 0, 0xFF, 0xFF};
+  bytes.insert(bytes.end(), frame.begin(), frame.end());
+  EnvelopeStreamParser p;
+  std::vector<Envelope> got;
+  p.feed(bytes.data(), bytes.size(), got);
+  CHECK(got.size() == 1 && got[0].seq == 1);
+
+  EnvelopeStreamParser small(2);  // payload above the configured maximum is rejected
+  got.clear();
+  small.feed(frame.data(), frame.size(), got);
+  CHECK(got.empty());
+}
+
+static void testWriterOverflowAndRegistry() {
+  Writer w;
+  w.writeString(std::string(10, 'a'), 5);
+  CHECK(!w.ok());
+  auto& reg = TemplateRegistry::instance();
+  const size_t before = reg.entries().size();
+  reg.add(TemplateEntry{1, 1, 1, nullptr});  // duplicate id is ignored
+  CHECK(reg.entries().size() == before && reg.find(1)->create != nullptr);
+}
+
+static void testChatLayoutStates() {
+  sim::SimGfx g(480, 800);
+  gen::chat::ChatState s;
+  auto texts = [&] {
+    std::vector<std::string> out;
+    for (const auto& it : chat::layout(g, s))
+      if (it.kind == chat::Item::Kind::Text) out.push_back(it.text);
+    return out;
+  };
+  auto has = [&](const std::string& t) {
+    for (const auto& x : texts())
+      if (x == t) return true;
+    return false;
+  };
+  CHECK(has("No messages yet"));
+
+  s.messages = {{1, "Bob", "a", 0, false},
+                {2, "Me", "one two three four five six seven eight nine ten eleven twelve", 0, true}};
+  s.scroll = 1;
+  CHECK(has("v1") && !has("No messages yet"));
+
+  // An outgoing multi-line message is one block: every text line starts at the same x.
+  s.scroll = 0;
+  s.messages.erase(s.messages.begin());
+  int x = -1;
+  bool aligned = true;
+  for (const auto& it : chat::layout(g, s)) {
+    if (it.kind != chat::Item::Kind::Text || it.font == Font::Title || it.text == ">") continue;
+    if (it.r.y > 690) continue;  // above the draft area
+    if (x < 0) x = it.r.x;
+    aligned &= it.r.x == x;
+  }
+  CHECK(aligned);
+
+  // A message taller than the body shows an ellipsis line, then its last lines.
+  s.messages = {{1, "Bob", std::string(2000, 'w') + " end", 0, false}};
+  CHECK(has("\xE2\x80\xA6"));
 }
 
 static void testSessionErrors() {
@@ -333,6 +411,9 @@ int main() {
   testRegistryAndCaps();
   testSessionAckSwitchAndDiffs();
   testSessionResyncCases();
+  testStreamParserRejectsOversizedLengths();
+  testWriterOverflowAndRegistry();
+  testChatLayoutStates();
   testSessionErrors();
   testSessionButtons();
   testChatOpSemantics();
