@@ -14,9 +14,9 @@
 | --- | --- | --- |
 | `x4pro` upstream baseline | 5,428,146 (82.8%) | 111,740 |
 | `x4pro` with the hooks, flag off | 5,428,242 (+96 B) | 111,740 |
-| `x4pro-mirror` | 5,455,514 (+27,368 B, 83.2%) | 111,772 (+32 B) |
+| `x4pro-mirror` | 5,458,698 (+30,552 B, 83.3%) | 111,772 (+32 B) |
 | `default` (X4, ESP32-C3) stock | 5,584,045 (85.2%) | 66,680 |
-| `mirror` (X4, ESP32-C3) | 5,626,831 (+42,786 B, 85.9%) | 66,960 (+280 B) |
+| `mirror` (X4, ESP32-C3) | 5,629,217 (+45,172 B, 85.9%) | 66,960 (+280 B) |
 
 * Headroom: about 1.1 MB flash on the X4 Pro, about 0.9 MB on the X4. Runtime heap use of the NimBLE host + GATT server was **not measured**; the S3 profile
   places the NimBLE host in PSRAM (`scripts/s3_nimble_psram.h`). `MirrorBle` refuses to start below a 24 KB largest free block
@@ -47,4 +47,6 @@ registration: `activityManager.replaceActivity(...)` starts one. Replace (not pu
 * The `CoverGridHomeUi` change was compiled, not seen on a device. Mirror's cover-grid icon reuses the Transfer icon.
 * App resource ids in `ChatAppSelectors` (from memory, unvalidated); Telegram needs a content-description parser.
 * `FLAG_SECURE` probe behaviour on real devices (needs API 34+; rate limited).
+* Dark mode (overlay, `getWindows()`, proximity guard) and the capture export were compiled and unit-tested only. Open questions: whether `BRIGHTNESS_OVERRIDE_OFF` dims
+  on the target phone, whether `getWindows()` returns the chat window while `packageNames` restricts events, and what `FLAG_SECURE` probing returns on API < 34.
 * Repo process: `firmware-handoff` (four independent reviews, human acceptance, hardware testing) has not been done.

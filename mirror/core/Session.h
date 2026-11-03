@@ -3,6 +3,7 @@
 // active TemplateRenderer. Payloads are opaque here.
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "core/Envelope.h"
@@ -32,6 +33,13 @@ class Session {
   // Null until the phone sends a full state.
   TemplateRenderer* active() { return active_.get(); }
   uint16_t lastApplied() const { return lastApplied_; }
+  // The phone's screen mode (dark mode on or off, minutes left), once the phone has sent it.
+  const std::optional<gen::PhoneStatus>& phoneStatus() const { return phone_; }
+  std::string phoneDump() const;  // golden-file form: "dark=1 minutes=30" or "-"
+
+  // Asks the phone to do something (gen::kCmd*). Only valid while connected.
+  void sendCommand(uint8_t command);
+
   // One-shot flags; either one means the next frame should be a full refresh.
   bool takeTemplateSwitched() {
     bool s = switched_;
@@ -48,6 +56,7 @@ class Session {
 
  private:
   void handle(const Envelope& e, bool& changed);
+  void handleControl(const Envelope& e, bool& changed);
   void emit(uint8_t templateId, uint8_t schema, uint8_t flags, uint16_t base, const std::vector<uint8_t>& payload = {});
   void emitError(uint8_t code, uint8_t detail);
   void emitResync(uint8_t templateId, uint8_t schema);
@@ -60,6 +69,7 @@ class Session {
   uint16_t lastApplied_ = 0;
   uint16_t outSeq_ = 1;
   uint32_t crcSeen_ = 0;
+  std::optional<gen::PhoneStatus> phone_;
   bool awaitingFull_ = false;  // resync requested: diffs are dropped until a full state arrives
   bool switched_ = false;
   bool resync_ = false;

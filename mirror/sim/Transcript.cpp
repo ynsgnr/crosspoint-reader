@@ -1,6 +1,7 @@
 #include "sim/Transcript.h"
 
 #include <deque>
+#include <map>
 #include <sstream>
 
 namespace mirror::sim {
@@ -22,8 +23,7 @@ std::string toHex(const std::vector<uint8_t>& b) {
   return o;
 }
 
-bool replay(const std::string& transcript, const TemplateRegistry& reg, const ReplayHooks& hooks,
-            const std::function<std::string(Session&)>& dump) {
+bool replay(const std::string& transcript, const TemplateRegistry& reg, const ReplayHooks& hooks) {
   std::deque<std::string> out;  // frames the device emitted, waiting to be matched by `rx` lines
   Session session(reg, [&out](const std::vector<uint8_t>& f) { out.push_back(toHex(f)); });
   bool ok = true;
@@ -53,12 +53,26 @@ bool replay(const std::string& transcript, const TemplateRegistry& reg, const Re
         out.pop_front();
       }
     } else if (cmd == "btn") {
-      session.onButton(arg == "up" ? Button::Up : Button::Down);
+      static const std::map<std::string, Button> kButtons = {{"up", Button::Up},
+                                                             {"down", Button::Down},
+                                                             {"left", Button::Left},
+                                                             {"right", Button::Right},
+                                                             {"confirm", Button::Confirm}};
+      const auto b = kButtons.find(arg);
+      if (b == kButtons.end())
+        fail("line " + std::to_string(n) + ": unknown button " + arg);
+      else
+        session.onButton(b->second);
+    } else if (cmd == "cmd") {
+      session.sendCommand(static_cast<uint8_t>(std::stoi(arg)));
+    } else if (cmd == "phone") {
+      if (session.phoneDump() != arg)
+        fail("line " + std::to_string(n) + ": phone status mismatch\n  want " + arg + "\n  got  " +
+             session.phoneDump());
     } else if (cmd == "state") {
-      const std::string got = session.active() ? dump(session) : "";
+      const std::string got = session.active() ? session.active()->dump() : "-";
       if (!out.empty()) fail("line " + std::to_string(n) + ": unexpected device frame " + out.front()), out.clear();
-      if (got != arg && !(arg.rfind("T: U:0 S:0 D: M:", 0) == 0 && !session.active()))
-        fail("line " + std::to_string(n) + ": state mismatch\n  want " + arg + "\n  got  " + got);
+      if (got != arg) fail("line " + std::to_string(n) + ": state mismatch\n  want " + arg + "\n  got  " + got);
     }
     if (hooks.afterLine) hooks.afterLine(line, session);
   }

@@ -145,7 +145,8 @@ bool ChatRenderer::onButton(Button b, std::vector<uint8_t>& eventPayload) {
   return w.ok();
 }
 
-std::string dumpState(const ChatState& s) {
+std::string ChatRenderer::dump() const {
+  const ChatState& s = state_;
   auto hex = [](const std::string& x) {
     static const char* d = "0123456789abcdef";
     std::string o;

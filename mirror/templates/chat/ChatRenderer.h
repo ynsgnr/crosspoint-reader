@@ -18,6 +18,7 @@ class ChatRenderer final : public TemplateRenderer {
   DirtyRects render(Gfx& gfx) override;
   bool onButton(Button b, std::vector<uint8_t>& eventPayload) override;
 
+  std::string dump() const override;
   const gen::chat::ChatState& state() const { return state_; }
 
   // Same rules as ChatApply.kt. False leaves `s` untouched.
@@ -30,8 +31,5 @@ class ChatRenderer final : public TemplateRenderer {
   bool havePrev_ = false;
   int prevW_ = 0, prevH_ = 0;
 };
-
-// Golden-file format; same as dump() in the Kotlin tests.
-std::string dumpState(const gen::chat::ChatState& s);
 
 }  // namespace mirror::chat

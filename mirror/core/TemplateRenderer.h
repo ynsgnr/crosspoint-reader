@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "core/Gfx.h"
@@ -38,6 +39,9 @@ class TemplateRenderer {
 
   // True when the phone should hear about this button.
   virtual bool onButton(Button b, std::vector<uint8_t>& eventPayload) = 0;
+
+  // Canonical one-line state description; golden transcripts compare it with the Kotlin codec's dump().
+  virtual std::string dump() const { return {}; }
 
   virtual RefreshOverrides refreshOverrides() const { return {}; }
 };

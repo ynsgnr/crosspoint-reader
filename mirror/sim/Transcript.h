@@ -18,8 +18,7 @@ struct ReplayHooks {
   std::function<void(const std::string& message)> fail;
 };
 
-// Returns true when every expectation (rx frames, state dumps) held. `dump` renders the active renderer's state.
-bool replay(const std::string& transcript, const TemplateRegistry& reg, const ReplayHooks& hooks,
-            const std::function<std::string(Session&)>& dump);
+// True when every expectation (rx frames, state dumps) held. Works for any registered template.
+bool replay(const std::string& transcript, const TemplateRegistry& reg, const ReplayHooks& hooks);
 
 }  // namespace mirror::sim

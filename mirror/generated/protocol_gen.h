@@ -13,7 +13,7 @@
 
 namespace mirror::gen {
 
-inline constexpr uint8_t kProtocolVersion = 1;
+inline constexpr uint8_t kProtocolVersion = 2;
 inline constexpr uint32_t kMagic = 167;
 inline constexpr uint32_t kHeaderSize = 11;
 inline constexpr uint32_t kCrcSize = 2;
@@ -26,11 +26,15 @@ inline constexpr uint8_t kFlagAckRequest = 0x04;
 inline constexpr uint8_t kFlagAck = 0x08;
 inline constexpr uint8_t kFlagResync = 0x10;
 inline constexpr uint8_t kFlagEvent = 0x20;
+inline constexpr uint8_t kFlagStatus = 0x40;
+inline constexpr uint8_t kFlagCommand = 0x80;
 inline constexpr uint8_t kErrBadProtocol = 1;
 inline constexpr uint8_t kErrUnknownTemplate = 2;
 inline constexpr uint8_t kErrSchemaMismatch = 3;
 inline constexpr uint8_t kErrTooLarge = 4;
 inline constexpr uint8_t kErrBadPayload = 5;
+inline constexpr uint8_t kCmdToggleDarkMode = 1;
+inline constexpr uint8_t kFeaturePhoneStatus = 1;
 inline constexpr const char* kUuidService = "6d1a0001-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidData = "6d1a0002-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidEvent = "6d1a0003-7e1c-4f3b-9a53-5c0b2d9a11e0";
@@ -82,6 +86,7 @@ struct Capabilities {
   std::string device_name;
   std::vector<TemplateCaps> templates;
   std::vector<FontCaps> fonts;
+  uint8_t features = 0;
 
   void encode(Writer& w) const {
     w.writeU8(protocol_version);
@@ -99,6 +104,7 @@ struct Capabilities {
     for (const auto& e : fonts) {
       e.encode(w);
     }
+    w.writeU8(features);
   }
   static bool decode(Reader& r, Capabilities& out) {
     out.protocol_version = r.readU8();
@@ -128,6 +134,7 @@ struct Capabilities {
         out.fonts.push_back(std::move(e));
       }
     }
+    out.features = r.readU8();
     return r.ok();
   }
   bool operator==(const Capabilities&) const = default;
@@ -147,6 +154,35 @@ struct ControlEvent {
     return r.ok();
   }
   bool operator==(const ControlEvent&) const = default;
+};
+
+struct PhoneStatus {
+  bool dark_mode = false;
+  uint16_t minutes_left = 0;
+
+  void encode(Writer& w) const {
+    w.writeBool(dark_mode);
+    w.writeU16(minutes_left);
+  }
+  static bool decode(Reader& r, PhoneStatus& out) {
+    out.dark_mode = r.readBool();
+    out.minutes_left = r.readU16();
+    return r.ok();
+  }
+  bool operator==(const PhoneStatus&) const = default;
+};
+
+struct ControlCommand {
+  uint8_t command = 0;
+
+  void encode(Writer& w) const {
+    w.writeU8(command);
+  }
+  static bool decode(Reader& r, ControlCommand& out) {
+    out.command = r.readU8();
+    return r.ok();
+  }
+  bool operator==(const ControlCommand&) const = default;
 };
 
 }  // namespace mirror::gen

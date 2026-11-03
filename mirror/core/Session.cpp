@@ -42,6 +42,7 @@ bool Session::feed(const uint8_t* data, size_t len) {
 
 void Session::handle(const Envelope& e, bool& changed) {
   if (e.protocolVersion != gen::kProtocolVersion) return emitError(gen::kErrBadProtocol, e.protocolVersion);
+  if (e.templateId == gen::kControlTemplateId) return handleControl(e, changed);
   const TemplateEntry* t = registry_.find(e.templateId);
   if (!t) return emitError(gen::kErrUnknownTemplate, e.templateId);
   if (e.schemaVersion < t->minSchema || e.schemaVersion > t->maxSchema)
@@ -74,6 +75,26 @@ void Session::handle(const Envelope& e, bool& changed) {
   if (e.has(gen::kFlagAckRequest)) emit(e.templateId, e.schemaVersion, gen::kFlagAck, e.seq);
 }
 
+void Session::handleControl(const Envelope& e, bool& changed) {
+  if (!e.has(gen::kFlagStatus)) return;
+  Reader r(e.payload.data(), e.payload.size());
+  gen::PhoneStatus status;
+  if (!gen::PhoneStatus::decode(r, status) || !r.atEnd()) return;
+  phone_ = status;
+  changed = true;
+}
+
+std::string Session::phoneDump() const {
+  if (!phone_) return "-";
+  return "dark=" + std::string(phone_->dark_mode ? "1" : "0") + " minutes=" + std::to_string(phone_->minutes_left);
+}
+
+void Session::sendCommand(uint8_t command) {
+  Writer w;
+  gen::ControlCommand{command}.encode(w);
+  emit(static_cast<uint8_t>(gen::kControlTemplateId), 0, gen::kFlagCommand, 0, w.bytes());
+}
+
 bool Session::onButton(Button b) {
   if (!active_) return false;
   std::vector<uint8_t> payload;
@@ -86,6 +107,7 @@ std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceNam
   gen::Capabilities c;
   c.protocol_version = gen::kProtocolVersion;
   c.max_payload = maxPayload_;
+  c.features = gen::kFeaturePhoneStatus;
   c.screen_width = static_cast<uint16_t>(gfx.width());
   c.screen_height = static_cast<uint16_t>(gfx.height());
   c.device_name = deviceName;

@@ -32,15 +32,20 @@ mismatch, scroll events) byte for byte through the real `Session` and `ChatRende
 Title row (scroll marker `vN` when newer messages are below, unread badge), messages (incoming left with a thin bar, own right-aligned
 as one block with a thick bar), a fixed 3-line draft area with cursor. Up/Down (or the page buttons) scroll; Back leaves.
 
+## Status band and dark mode
+Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): `Confirm: phone dark mode`, or `Phone dark mode: N min (Confirm: off)`
+while the phone reports it. Confirm sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
+
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template
 switch, resync, and every 20 partials (`RefreshOverrides` per template). Dirty rectangles are computed per paint item; typing
 dirties one 24 px line. `HalDisplay` does not expose the SDK's experimental `displayWindow`, so rects only drive the policy.
 
 ## Add a template
-Add `templates/<name>/` with a `TemplateRenderer` subclass and `MIRROR_REGISTER_TEMPLATE(Class, id, minSchema, maxSchema)`;
-put the generated `<name>_gen.h` there via `sync-fork.sh`; add the .cpp to `CMakeLists.txt` for host tests.
-The firmware picks it up through `build_src_filter` (`+<../mirror/templates/>`).
+Add `templates/<name>/` with a `TemplateRenderer` subclass (`onFull`, `onDiff`, `render`, `onButton`, `dump`) and one
+`MIRROR_REGISTER_TEMPLATE(Class, id, minSchema, maxSchema)` line; `retink/scripts/sync-fork.sh` puts `<name>_gen.h` and the golden
+transcripts in place. Nothing else changes: the firmware picks the folder up through `build_src_filter`, CMake globs `templates/`,
+and the golden replay, the simulator and the capabilities handshake work for every registered template.
 
 ## Rebase on upstream
 See `MIRROR_CHANGES.md`.

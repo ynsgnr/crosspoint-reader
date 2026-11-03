@@ -5,8 +5,10 @@
 #include <fstream>
 #include <sstream>
 
+#include "core/BandedGfx.h"
 #include "core/Crc16.h"
 #include "core/Envelope.h"
+#include "core/Frame.h"
 #include "core/RefreshPolicy.h"
 #include "core/Session.h"
 #include "sim/SimGfx.h"
@@ -159,15 +161,15 @@ static void testWrap() {
 
 static void testRegistryAndCaps() {
   const auto& reg = TemplateRegistry::instance();
-  CHECK(reg.find(1) != nullptr && reg.find(2) == nullptr);
+  CHECK(reg.find(1) != nullptr && reg.find(255) == nullptr);
   sim::SimGfx g(480, 800);
   Session s(reg, [](const std::vector<uint8_t>&) {});
   auto caps = s.capabilities(g, "CrossPoint");
   Reader r(caps.data(), caps.size());
   gen::Capabilities c;
   CHECK(gen::Capabilities::decode(r, c) && r.atEnd());
-  CHECK(c.max_payload == 2048 && c.screen_width == 480 && c.templates.size() == 1 && c.templates[0].id == 1 &&
-        c.fonts.size() == 3);
+  CHECK(c.max_payload == 2048 && c.screen_width == 480 && c.templates.size() == reg.entries().size() &&
+        c.templates[0].id == 1 && c.fonts.size() == 3);
 }
 
 namespace {
@@ -372,34 +374,86 @@ static void testWrapHardBreakAndAlignment() {
   CHECK(RefreshPolicy::alignToBytes(Rect{470, 5, 10, 4}, 480) == (Rect{464, 5, 16, 4}));
 }
 
+static void testControlChannel() {
+  Device d;
+  CHECK(!d.session.phoneStatus() && d.session.phoneDump() == "-");
+  Writer w;
+  gen::PhoneStatus{true, 25}.encode(w);
+  d.send(gen::kFlagStatus, 1, 0, w.take(), 0, 0);
+  CHECK(d.out.empty() && d.session.phoneStatus() && d.session.phoneStatus()->minutes_left == 25);
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25");
+  d.send(gen::kFlagStatus, 2, 0, {0xFF}, 0, 0);  // garbage status is ignored
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25" && d.out.empty());
+
+  d.session.sendCommand(gen::kCmdToggleDarkMode);
+  CHECK(d.out.size() == 1 && d.out[0].templateId == 0 && d.out[0].has(gen::kFlagCommand));
+  Reader r(d.out[0].payload.data(), d.out[0].payload.size());
+  gen::ControlCommand c;
+  CHECK(gen::ControlCommand::decode(r, c) && c.command == gen::kCmdToggleDarkMode);
+}
+
+static void testBandedGfxLeavesTheTopBandFree() {
+  sim::SimGfx g(100, 100);
+  BandedGfx banded(g, 20);
+  CHECK(banded.height() == 80 && banded.width() == 100);
+  banded.fillRect(0, 0, 10, 10, true);
+  CHECK(g.black(0, 20) && !g.black(0, 19) && !g.black(0, 9));
+  // A whole template frame never touches the band, which carries the status text.
+  chat::ChatRenderer r;
+  gen::chat::ChatState s;
+  s.title = "Title";
+  auto bytes = chatFull(s);
+  r.onFull(bytes.data(), bytes.size());
+  sim::SimGfx frame(480, 800);
+  const int band = statusBandHeight(frame);
+  renderFrame(r, frame, "");
+  bool bandClear = true;
+  for (int y = 0; y < band; ++y)
+    for (int x = 0; x < 480; ++x) bandClear &= !frame.black(x, y);
+  CHECK(bandClear);
+  renderFrame(r, frame, statusBandText(gen::PhoneStatus{true, 7}));
+  bool bandDrawn = false;
+  for (int y = 0; y < band; ++y)
+    for (int x = 0; x < 480; ++x) bandDrawn |= frame.black(x, y);
+  CHECK(bandDrawn);
+  CHECK(statusBandText(gen::PhoneStatus{true, 7}).find("7 min") != std::string::npos);
+  CHECK(statusBandText(std::nullopt).find("dark mode") != std::string::npos);
+}
+
 static bool runGolden(const std::string& path) {
   std::ifstream f(path);
   std::stringstream ss;
   ss << f.rdbuf();
   sim::ReplayHooks hooks;
   hooks.fail = [&](const std::string& m) { std::printf("golden %s: %s\n", path.c_str(), m.c_str()); };
-  return sim::replay(ss.str(), TemplateRegistry::instance(), hooks,
-                     [](Session& s) { return chat::dumpState(static_cast<chat::ChatRenderer*>(s.active())->state()); });
+  return sim::replay(ss.str(), TemplateRegistry::instance(), hooks);
 }
 
+// Replays every golden transcript of every template directory (golden/<template>/*.txt).
 static void testGoldens() {
-  const std::string dir = std::string(MIRROR_GOLDEN_DIR) + "/chat";
-  DIR* d = opendir(dir.c_str());
-  CHECK(d != nullptr);
-  int n = 0;
-  while (d) {
-    dirent* e = readdir(d);
-    if (!e) break;
-    const std::string name = e->d_name;
-    if (name.size() > 4 && name.substr(name.size() - 4) == ".txt") {
+  DIR* root = opendir(MIRROR_GOLDEN_DIR);
+  CHECK(root != nullptr);
+  int n = 0, templates = 0;
+  while (root) {
+    dirent* t = readdir(root);
+    if (!t) break;
+    if (t->d_name[0] == '.') continue;
+    const std::string dir = std::string(MIRROR_GOLDEN_DIR) + "/" + t->d_name;
+    DIR* d = opendir(dir.c_str());
+    if (!d) continue;
+    ++templates;
+    while (dirent* e = readdir(d)) {
+      const std::string name = e->d_name;
+      if (name.size() <= 4 || name.substr(name.size() - 4) != ".txt") continue;
       ++n;
       const bool ok = runGolden(dir + "/" + name);
-      std::printf("golden %-24s %s\n", name.c_str(), ok ? "ok" : "FAILED");
+      std::printf("golden %s/%-24s %s\n", t->d_name, name.c_str(), ok ? "ok" : "FAILED");
       CHECK(ok);
     }
+    closedir(d);
   }
-  if (d) closedir(d);
-  CHECK(n >= 8);
+  if (root) closedir(root);
+  CHECK(templates >= 1 && n >= 8);
 }
 
 int main() {
@@ -415,6 +469,8 @@ int main() {
   testWriterOverflowAndRegistry();
   testChatLayoutStates();
   testSessionErrors();
+  testControlChannel();
+  testBandedGfxLeavesTheTopBandFree();
   testSessionButtons();
   testChatOpSemantics();
   testWrapHardBreakAndAlignment();

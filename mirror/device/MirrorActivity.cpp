@@ -4,8 +4,8 @@
 #include <HalDisplay.h>
 #include <Logging.h>
 
+#include "core/Frame.h"
 #include "fontIds.h"
-#include "templates/chat/ChatRenderer.h"  // keeps the Chat template linked; it registers itself
 
 namespace {
 constexpr char kDeviceName[] = "CrossPoint Mirror";
@@ -72,6 +72,8 @@ void MirrorActivity::loop() {
   if (overflowed) session_->requestResync();
   if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
 
+  // Confirm asks the phone to toggle dark mode; the new state comes back as a status message.
+  if (mappedInput.wasReleased(Btn::Confirm) && ble_.connected()) session_->sendCommand(mirror::gen::kCmdToggleDarkMode);
   // The event goes to the phone; the new scroll position comes back as a diff.
   if (mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::PageBack)) session_->onButton(mirror::Button::Up);
   if (mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::PageForward))
@@ -107,6 +109,8 @@ void MirrorActivity::drawStatus() {
       } else if (ble_.connected()) {
         line("Connected.");
         line("Open a chat app on your phone.");
+        y += lh / 2;
+        line("Confirm: phone dark mode on/off");
       } else {
         line("Waiting for your phone");
         line(std::string("Name: ") + kDeviceName);
@@ -137,10 +141,14 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
   statusShown_ = false;
   forceFull_ |= session_->takeTemplateSwitched();
   forceFull_ |= session_->takeResyncHappened();
-  const mirror::DirtyRects dirty = t->render(gfx_);
-  const mirror::RefreshPlan plan = policy_.plan(dirty, gfx_.width(), gfx_.height(), t->refreshOverrides(), forceFull_);
+  const std::string text = mirror::statusBandText(session_->phoneStatus());
+  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, text);
+  const mirror::RefreshPlan plan = policy_.plan(dirty, gfx_.width(), gfx_.height() - mirror::statusBandHeight(gfx_),
+                                                t->refreshOverrides(), forceFull_);
   forceFull_ = false;
-  return plan.kind;
+  const bool bandChanged = text != drawnBand_;
+  drawnBand_ = text;
+  return plan.kind == mirror::RefreshKind::None && bandChanged ? mirror::RefreshKind::Partial : plan.kind;
 }
 
 void MirrorActivity::render(RenderLock&&) {

@@ -37,6 +37,7 @@ class MirrorActivity final : public Activity {
   enum class Startup { Ok, NoMemory, Failed } startup_ = Startup::Failed;
   uint32_t seenEpoch_ = 0;
   bool wasConnected_ = false;
+  std::string drawnBand_;
   bool forceFull_ = true;
   bool statusShown_ = false;
   bool bondsForgotten_ = false;
