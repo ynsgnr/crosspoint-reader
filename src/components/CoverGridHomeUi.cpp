@@ -315,9 +315,12 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
     const int index = tab.value - static_cast<int>(self.books->size());
     // Map the visible tab index back to its slot (OPDS, Sync and Mirror are optional).
     const bool present[] = {true, true, self.hasOpds, true, true, self.hasSync, MIRROR_ENABLED != 0};
-    int icon = 0;
-    for (int seen = -1; icon < 7; ++icon) {
-      if (present[icon] && ++seen == index) break;
+    int icon = 6;  // never read when the index is valid; keeps the lookup inside ICONS
+    for (int slot = 0, seen = -1; slot < 7; ++slot) {
+      if (present[slot] && ++seen == index) {
+        icon = slot;
+        break;
+      }
     }
     self.renderer.drawIcon(ICONS[icon], iconRect.x, iconRect.y, iconRect.width);
     return true;
