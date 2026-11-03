@@ -9,7 +9,7 @@ To check the list is complete after a rebase: `git diff --stat upstream/develop 
 
 | Upstream file | Change | Why |
 | --- | --- | --- |
-| `platformio.ini` | `extra_configs` is now a two-line list that also names `mirror/platformio_mirror.ini` | Defines the `mirror` and `x4pro-mirror` environments (feature flag, NimBLE role flags, `build_src_filter` that compiles `mirror/`). All build configuration lives in that file. |
+| `platformio.ini` | `extra_configs` is now a two-line list that also names `mirror/platformio_mirror.ini` | Defines the `mirror` and `x4pro-mirror` environments (feature flag, NimBLE role flags, `mirror/build.py` that compiles `mirror/`). All build configuration lives in that file. |
 | `src/activities/home/HomeActivity.h` | one method declaration, `onMirrorOpen()` | Home menu entry handler |
 | `src/activities/home/HomeActivity.cpp` | a local `#ifdef CROSSPOINT_MIRROR` block (defines `MIRROR_ENABLED`, includes `device/MirrorActivity.h`); `getMenuItemCount()` adds 1; `activateSelection` opens Mirror for the last item and moves the Sync check one position up; `render()` appends the "Mirror" item; `onMirrorOpen()` body (guarded) | The one Home menu entry (list themes) and the registration of the activity (`activityManager.replaceActivity(...)`; no `ActivityManager` edit) |
 | `src/components/CoverGridHomeUi.cpp`, `.h` | the same 5-line `MIRROR_ENABLED` block; tab loop 6 -> 7 slots, one icon-table entry, icon index mapping by "present" table, `tabItems` array size 7 | Same Home entry for the cover-grid theme (the X4 Pro default theme needs PSRAM) |

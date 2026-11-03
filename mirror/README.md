@@ -44,7 +44,7 @@ dirties one 24 px line. `HalDisplay` does not expose the SDK's experimental `dis
 ## Add a template
 Add `templates/<name>/` with a `TemplateRenderer` subclass (`onFull`, `onDiff`, `render`, `onButton`, `dump`) and one
 `MIRROR_REGISTER_TEMPLATE(Class, id, minSchema, maxSchema)` line; `retink/scripts/sync-fork.sh` puts `<name>_gen.h` and the golden
-transcripts in place. Nothing else changes: the firmware picks the folder up through `build_src_filter`, CMake globs `templates/`,
+transcripts in place. Nothing else changes: the firmware picks the folder up through `mirror/build.py`, CMake globs `templates/`,
 and the golden replay, the simulator and the capabilities handshake work for every registered template.
 
 ## Rebase on upstream
