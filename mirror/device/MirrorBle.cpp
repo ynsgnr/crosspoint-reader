@@ -76,7 +76,8 @@ DataCallbacks* dataCallbacks = nullptr;
 
 }  // namespace
 
-MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vector<uint8_t>& capabilities) {
+MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vector<uint8_t>& capabilities,
+                                       bool keyboard) {
   if (running_) return StartResult::Ok;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < kMinLargestBlock) {
     LOG_ERR("MIRROR", "not enough heap for BLE: largest block %u",
@@ -114,11 +115,19 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   NimBLECharacteristic* caps = svc->createCharacteristic(
       gen::kUuidCaps, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN, 512);
   caps->setValue(capabilities.data(), capabilities.size());
+  if (keyboard) {
+    hid_ = std::make_unique<MirrorHid>();
+    hid_->create(server_);
+  }
   server_->start();
 
   // Only the service UUID (the Companion Device Manager filters on it) and a generic name: no content, no serial.
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(gen::kUuidService);
+  if (keyboard) {
+    adv->addServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));  // the phone's HID host looks for this
+    adv->setAppearance(0x03C1);                                      // keyboard
+  }
   adv->setName(deviceName);
   adv->enableScanResponse(true);
   {
@@ -143,6 +152,7 @@ void MirrorBle::stop() {
   NimBLEDevice::deinit(true);  // frees server/advertising objects; bonds stay in NVS
   server_ = nullptr;
   eventChar_ = nullptr;
+  hid_.reset();
   connected_ = false;
   passkey_ = -1;
   pairingUntilMs_ = 0;
@@ -238,6 +248,7 @@ void MirrorBle::onConnected(const NimBLEConnInfo& link) {
 
 void MirrorBle::onDisconnected() {
   connected_ = false;
+  if (hid_) hid_->onLinkDown();
   passkey_ = -1;
   statusChanged_ = true;
 }

@@ -5,6 +5,7 @@
 #include <mutex>
 
 #include "activities/Activity.h"
+#include "core/Chord.h"
 #include "core/RefreshPolicy.h"
 #include "core/Session.h"
 #include "device/GfxAdapter.h"
@@ -23,8 +24,20 @@ class MirrorActivity final : public Activity {
   bool preventAutoSleep() override { return ble_.connected(); }
 
  private:
+  enum class Screen { Status, Unlock, ChordSettings };
+
   void resetSession();
+  void startBle();
+  void setScreen(Screen s);
+  // Per-screen input; each returns true when the screen needs a redraw. Called with mutex_ held.
+  bool loopStatus();
+  bool loopUnlock();
+  bool loopChordSettings();
+  bool phoneAllowsKeyboard() const;
+  void sendChordToPhone();
   void drawStatus();
+  void drawUnlock();
+  void drawChordSettings();
   mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
 
   static constexpr uint16_t kMaxPayload = 2048;
@@ -41,5 +54,16 @@ class MirrorActivity final : public Activity {
   bool forceFull_ = true;
   bool statusShown_ = false;
   bool bondsForgotten_ = false;
+
+  Screen screen_ = Screen::Status;
+  Screen drawnScreen_ = Screen::Status;
+  bool keyboardOn_ = false;      // opt-in, persisted
+  mirror::Chord chord_ = mirror::kDefaultChord;
+  mirror::Chord editChord_ = mirror::kDefaultChord;
+  int cursor_ = 0;               // selected key (unlock) or row (chord settings)
+  std::string note_;             // one line of feedback; never a typed digit
+  uint32_t chordSentEpoch_ = 0;  // connection the chord was last announced to the phone on
+  bool hidReadyAnnounced_ = false;
+  bool phoneWasLocked_ = true;
 };
 #endif

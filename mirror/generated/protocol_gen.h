@@ -36,6 +36,7 @@ inline constexpr uint8_t kErrBadPayload = 5;
 inline constexpr uint8_t kCmdToggleDarkMode = 1;
 inline constexpr uint8_t kCmdUnlockRequest = 2;
 inline constexpr uint8_t kCmdHidStatus = 3;
+inline constexpr uint8_t kCmdChord = 4;
 inline constexpr uint8_t kFeaturePhoneStatus = 1;
 inline constexpr uint8_t kFeatureHidKeyboard = 2;
 inline constexpr const char* kUuidService = "6d1a0001-7e1c-4f3b-9a53-5c0b2d9a11e0";
@@ -163,16 +164,19 @@ struct PhoneStatus {
   bool dark_mode = false;
   uint16_t minutes_left = 0;
   bool locked = false;
+  bool keyboard_allowed = false;
 
   void encode(Writer& w) const {
     w.writeBool(dark_mode);
     w.writeU16(minutes_left);
     w.writeBool(locked);
+    w.writeBool(keyboard_allowed);
   }
   static bool decode(Reader& r, PhoneStatus& out) {
     out.dark_mode = r.readBool();
     out.minutes_left = r.readU16();
     out.locked = r.readBool();
+    out.keyboard_allowed = r.readBool();
     return r.ok();
   }
   bool operator==(const PhoneStatus&) const = default;
@@ -181,14 +185,17 @@ struct PhoneStatus {
 struct ControlCommand {
   uint8_t command = 0;
   uint8_t arg = 0;
+  uint8_t arg2 = 0;
 
   void encode(Writer& w) const {
     w.writeU8(command);
     w.writeU8(arg);
+    w.writeU8(arg2);
   }
   static bool decode(Reader& r, ControlCommand& out) {
     out.command = r.readU8();
     out.arg = r.readU8();
+    out.arg2 = r.readU8();
     return r.ok();
   }
   bool operator==(const ControlCommand&) const = default;

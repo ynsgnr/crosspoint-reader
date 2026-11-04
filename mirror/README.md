@@ -1,8 +1,7 @@
 # mirror/: BLE text mirror for the Xteink X4 / X4 Pro
 
-Device side of `ynsgnr/retink`. The Mirror screen (last Home menu item) advertises as `CrossPoint Mirror`, pairs
-with a passkey shown on screen (authenticated pairing; unauthenticated peers are disconnected), and renders the template the phone sends. Advertising and the connection exist only
-while the screen is open. Upstream touchpoints: `MIRROR_CHANGES.md`. Findings and unverified items: `docs/FINDINGS.md`.
+Device side of `ynsgnr/retink`. The Mirror screen (last Home menu item) advertises as `E-Ink Reader` while it is open and
+renders the template the phone sends. Security, pairing, the optional keyboard and the trigger chord are described below. Upstream touchpoints: `MIRROR_CHANGES.md`. Findings and unverified items: `docs/FINDINGS.md`.
 
 ```
 core/        Wire, Envelope, Session (ack/resync/errors), TemplateRenderer + registry, RefreshPolicy, Gfx   (portable)
@@ -31,6 +30,27 @@ mismatch, scroll events) byte for byte through the real `Session` and `ChatRende
 ## Chat screen
 Title row (scroll marker `vN` when newer messages are below, unread badge), messages (incoming left with a thin bar, own right-aligned
 as one block with a thick bar), a fixed 3-line draft area with cursor. Up/Down (or the page buttons) scroll; Back leaves.
+
+## Security (protocol 3)
+* **Encrypted and authenticated only.** Every characteristic (mirror `data`, `event`, `caps`, and every HID/battery/device-info characteristic) has `*_ENC | *_AUTHEN`;
+  the notification subscription (CCCD) is made `READ/WRITE_ENC|AUTHEN` for the whole GATT server with `ble_gatts_set_clt_cfg_perm_flags` (`MirrorBle.cpp`). A second check in `onWrite`
+  drops data from a link that is not encrypted and authenticated. No debug characteristic exists; nothing logs message text.
+* **LE Secure Connections only** (`ble_hs_cfg.sm_sc_only`), MITM on, display-only IO: the passkey is shown on the e-ink screen and typed on the phone. Just Works cannot produce an authenticated bond,
+  so such a link is disconnected (`onAuthComplete`).
+* **Pairing window.** An unknown phone may connect only for 2 minutes after *Confirm* on the waiting screen ("Pair phone"). A bonded phone always may, but cannot re-pair outside the window
+  (`onPasskeyDisplay` disconnects). Pairing a new phone deletes the old bond (one phone at a time). Nothing is advertised without a bond or an open window.
+* **Privacy.** Resolvable private address (IRK distributed at bonding); the advertisement holds the mirror service UUID, the HID UUID and appearance when the keyboard is on, and the generic name `E-Ink Reader`.
+  No content, serial or per-device data. (The mirror service UUID is a project constant; the Companion Device Manager filters on it.)
+* **Migration.** `sec_epoch` in NVS (`kSecurityEpoch`); bonds made under an older model are deleted at the next start. The app does the same (`DeviceBond.SECURITY_EPOCH`).
+
+## Keyboard, unlock and trigger chord (opt-in)
+* Off by default. *Hold Left* on the waiting screen switches the HID keyboard on or off (`MirrorSettings`) and forgets the paired phone, because the keyboard changes the GATT database the phone caches per bond.
+  With it on, the same bond and the same pairing carry the mirror and the keyboard; there is no second pairing entry.
+* `MirrorHid`: HID-over-GATT keyboard + consumer + system-control report map, HID Information, Protocol Mode, Control Point, Battery, PnP. Built by hand (not `NimBLEHIDDevice`) so all of it needs the authenticated link.
+* **Unlock screen** (connected: *hold Left*): 4x3 pad (1-9, Wake, 0, Enter) on touch or with the arrow keys + Confirm. Each press is sent and released at once; no PIN, digit count or buffer exists, and leaving the screen clears the one-line note.
+  *Wake* sends a Shift tap then the System Wake Up usage. The phone reports `locked` in its status; the pad closes by itself when it unlocks.
+* **Trigger chord**: *Confirm* on the linked screen before the phone app runs sends the chord over HID (default Ctrl+Alt+Shift+M). *Hold Right* edits it (`core/Chord`: at least two modifiers, no Meta, letter or digit,
+  common two-modifier shortcuts refused). The device announces it to the phone (`chord` command) so both sides agree.
 
 ## Status band and dark mode
 Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): `Confirm: phone dark mode`, or `Phone dark mode: N min (Confirm: off)`

@@ -87,12 +87,13 @@ void Session::handleControl(const Envelope& e, bool& changed) {
 std::string Session::phoneDump() const {
   if (!phone_) return "-";
   return "dark=" + std::string(phone_->dark_mode ? "1" : "0") + " minutes=" + std::to_string(phone_->minutes_left) +
-         " locked=" + (phone_->locked ? "1" : "0");
+         " locked=" + (phone_->locked ? "1" : "0") +
+         " kbd=" + (phone_->keyboard_allowed ? "1" : "0");
 }
 
-void Session::sendCommand(uint8_t command, uint8_t arg) {
+void Session::sendCommand(uint8_t command, uint8_t arg, uint8_t arg2) {
   Writer w;
-  gen::ControlCommand{command, arg}.encode(w);
+  gen::ControlCommand{command, arg, arg2}.encode(w);
   emit(static_cast<uint8_t>(gen::kControlTemplateId), 0, gen::kFlagCommand, 0, w.bytes());
 }
 
@@ -104,11 +105,11 @@ bool Session::onButton(Button b) {
   return true;
 }
 
-std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceName) const {
+std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceName, uint8_t extraFeatures) const {
   gen::Capabilities c;
   c.protocol_version = gen::kProtocolVersion;
   c.max_payload = maxPayload_;
-  c.features = gen::kFeaturePhoneStatus;
+  c.features = gen::kFeaturePhoneStatus | extraFeatures;
   c.screen_width = static_cast<uint16_t>(gfx.width());
   c.screen_height = static_cast<uint16_t>(gfx.height());
   c.device_name = deviceName;

@@ -38,7 +38,7 @@ class Session {
   std::string phoneDump() const;  // golden-file form: "dark=1 minutes=30" or "-"
 
   // Asks the phone to do something (gen::kCmd*). Only valid while connected.
-  void sendCommand(uint8_t command, uint8_t arg = 0);
+  void sendCommand(uint8_t command, uint8_t arg = 0, uint8_t arg2 = 0);
 
   // One-shot flags; either one means the next frame should be a full refresh.
   bool takeTemplateSwitched() {
@@ -52,7 +52,7 @@ class Session {
     return s;
   }
 
-  std::vector<uint8_t> capabilities(const Gfx& gfx, const char* deviceName) const;
+  std::vector<uint8_t> capabilities(const Gfx& gfx, const char* deviceName, uint8_t extraFeatures = 0) const;
 
  private:
   void handle(const Envelope& e, bool& changed);

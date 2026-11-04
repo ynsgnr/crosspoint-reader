@@ -8,7 +8,10 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <memory>
 #include <vector>
+
+#include "device/MirrorHid.h"
 
 class NimBLEServer;
 class NimBLECharacteristic;
@@ -20,8 +23,8 @@ class MirrorBle {
  public:
   enum class StartResult { Ok, NoMemory, Failed };
 
-  // NoMemory when the heap cannot host the stack.
-  StartResult start(const char* deviceName, const std::vector<uint8_t>& capabilities);
+  // NoMemory when the heap cannot host the stack. `keyboard` adds the HID keyboard to the same GATT server and bond.
+  StartResult start(const char* deviceName, const std::vector<uint8_t>& capabilities, bool keyboard);
   void stop();  // stops advertising, disconnects, deinitialises the stack
   bool running() const { return running_; }
 
@@ -36,6 +39,11 @@ class MirrorBle {
 
   // Passkey to show while pairing, else -1.
   int32_t pairingPasskey() const { return passkey_.load(); }
+  // Keyboard: false when it is off, not subscribed by the phone's HID host yet, or the link is down.
+  bool keyboardReady() const { return hid_ && connected_.load() && hid_->ready(); }
+  bool typeKey(uint8_t mods, uint8_t usage) { return keyboardReady() && hid_->tap(connHandle_.load(), mods, usage); }
+  bool wakePhone() { return keyboardReady() && hid_->wake(connHandle_.load()); }
+
   // True once after a connect, disconnect or pairing change.
   bool takeStatusChanged() { return statusChanged_.exchange(false); }
   int bondCount() const;
@@ -70,6 +78,7 @@ class MirrorBle {
   std::vector<uint8_t> inbound_;
   bool overflow_ = false;
   NimBLEServer* server_ = nullptr;
+  std::unique_ptr<MirrorHid> hid_;
   NimBLECharacteristic* eventChar_ = nullptr;
   static constexpr size_t kInboundCap = 8192;
 };

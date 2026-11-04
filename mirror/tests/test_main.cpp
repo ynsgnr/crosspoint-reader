@@ -7,6 +7,7 @@
 
 #include "core/BandedGfx.h"
 #include "core/Crc16.h"
+#include "core/Chord.h"
 #include "core/Envelope.h"
 #include "core/Frame.h"
 #include "core/RefreshPolicy.h"
@@ -378,12 +379,12 @@ static void testControlChannel() {
   Device d;
   CHECK(!d.session.phoneStatus() && d.session.phoneDump() == "-");
   Writer w;
-  gen::PhoneStatus{true, 25, true}.encode(w);
+  gen::PhoneStatus{true, 25, true, true}.encode(w);
   d.send(gen::kFlagStatus, 1, 0, w.take(), 0, 0);
   CHECK(d.out.empty() && d.session.phoneStatus() && d.session.phoneStatus()->minutes_left == 25);
-  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1");
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1 kbd=1");
   d.send(gen::kFlagStatus, 2, 0, {0xFF}, 0, 0);  // garbage status is ignored
-  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1" && d.out.empty());
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1 kbd=1" && d.out.empty());
 
   d.session.sendCommand(gen::kCmdToggleDarkMode);
   CHECK(d.out.size() == 1 && d.out[0].templateId == 0 && d.out[0].has(gen::kFlagCommand));
@@ -395,6 +396,20 @@ static void testControlChannel() {
   d.session.sendCommand(gen::kCmdHidStatus, 2);
   Reader r2(d.out[0].payload.data(), d.out[0].payload.size());
   CHECK(d.out.size() == 1 && gen::ControlCommand::decode(r2, c) && c.command == gen::kCmdHidStatus && c.arg == 2);
+}
+
+static void testChordRules() {
+  using namespace mirror;
+  CHECK(chordLabel(kDefaultChord) == "Ctrl+Alt+Shift+M" && checkChord(kDefaultChord) == ChordCheck::Ok);
+  CHECK(checkChord({0, 0x10}) == ChordCheck::TooFewModifiers);            // never a bare key
+  CHECK(checkChord({kModCtrl, 0x10}) == ChordCheck::TooFewModifiers);     // nor one modifier
+  CHECK(checkChord({kModCtrl | kModMeta, 0x10}) == ChordCheck::MetaReserved);
+  CHECK(checkChord({kModCtrl | kModAlt | kModShift, 0x28}) == ChordCheck::KeyNotAllowed);  // Enter
+  CHECK(checkChord({kModCtrl | kModShift, 0x17}) == ChordCheck::CommonShortcut);          // Ctrl+Shift+T
+  CHECK(checkChord({kModCtrl | kModAlt, 0x17}) == ChordCheck::CommonShortcut);            // Ctrl+Alt+T
+  CHECK(checkChord({kModCtrl | kModAlt, 0x10}) == ChordCheck::Ok);                        // Ctrl+Alt+M
+  CHECK(nextChordKey(0x1D, 1) == 0x1E && nextChordKey(0x27, 1) == 0x04 && nextChordKey(0x04, -1) == 0x27);
+  CHECK(digitUsage(1) == 0x1E && digitUsage(9) == 0x26 && digitUsage(0) == 0x27);
 }
 
 static void testBandedGfxLeavesTheTopBandFree() {
@@ -475,6 +490,7 @@ int main() {
   testChatLayoutStates();
   testSessionErrors();
   testControlChannel();
+  testChordRules();
   testBandedGfxLeavesTheTopBandFree();
   testSessionButtons();
   testChatOpSemantics();
