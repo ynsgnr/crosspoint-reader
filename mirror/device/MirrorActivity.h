@@ -24,8 +24,8 @@ class MirrorActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  // Keep the screen awake only while a phone is connected.
-  bool preventAutoSleep() override { return ble_.connected(); }
+  // Stay awake (full CPU speed, no auto-sleep) while a phone is connected or the pairing window is open.
+  bool preventAutoSleep() override { return ble_.connected() || ble_.pairingOpen(); }
 
  private:
   enum class Screen { Status, Unlock, Pattern, ChordSettings };
