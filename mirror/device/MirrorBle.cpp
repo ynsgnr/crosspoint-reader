@@ -82,6 +82,7 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   if (running_) return StartResult::Ok;
   keyboard_ = keyboard;
   minimalAdvertisement_ = false;
+  publicAddress_ = false;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < kMinLargestBlock) {
     LOG_ERR("MIRROR", "not enough heap for BLE: largest block %u",
             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
@@ -184,6 +185,13 @@ void MirrorBle::service() {
       minimalAdvertisement_ = true;
       ok = adv->start();
       LOG_INF("MIRROR", "retry with the minimal advertisement: %s", ok ? "on" : "failed");
+    }
+    if (!ok && !publicAddress_) {
+      // Last resort: the private (rotating) address may be what the controller refuses. Privacy is traded for working.
+      publicAddress_ = true;
+      NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_PUBLIC);
+      ok = adv->start();
+      LOG_INF("MIRROR", "retry with the public address: %s", ok ? "on" : "failed");
     }
     const int started = ok ? 1 : 0;
     if (started != advertisingState_.load()) LOG_INF("MIRROR", "advertising %s", started ? "on" : "FAILED to start");
