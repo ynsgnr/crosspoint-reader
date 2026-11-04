@@ -1,5 +1,7 @@
 #if defined(CROSSPOINT_MIRROR)
 // Unlock pad, pattern and chord settings. Keys are sent the moment they are pressed and never stored.
+#include <algorithm>
+
 #include "device/MirrorActivity.h"
 #include "device/MirrorSettings.h"
 #include "device/ScreenText.h"
@@ -146,20 +148,39 @@ void MirrorActivity::finishPattern() {
   patternVisited_ = 0;
 }
 
+// The chord rows as buttons: three modifiers, the key, Save.
+void MirrorActivity::buildChordButtons() {
+  buttons_.clear();
+  for (const ModifierRow& m : kModifierRows)
+    buttons_.add(std::string(m.name) + ": " + ((editChord_.mods & m.mask) ? "on" : "off"), buttons_.count());
+  buttons_.add("Key: " + mirror::chordLabel({0, editChord_.key}) + "  (tap or Left/Right)", kRowKey);
+  buttons_.add("Save", kRowSave);
+}
+
+int MirrorActivity::chordButtonsTop() const { return renderer.getScreenHeight() / 3; }
+
 bool MirrorActivity::loopChordSettings() {
   using Btn = MappedInputManager::Button;
   bool redraw = false;
-  if (mappedInput.wasPressed(Btn::Up)) cursor_ = (cursor_ + kRowCount - 1) % kRowCount, redraw = true;
-  if (mappedInput.wasPressed(Btn::Down)) cursor_ = (cursor_ + 1) % kRowCount, redraw = true;
-  if (cursor_ == kRowKey) {
-    if (mappedInput.wasPressed(Btn::Left)) editChord_.key = mirror::nextChordKey(editChord_.key, -1), redraw = true;
-    if (mappedInput.wasPressed(Btn::Right)) editChord_.key = mirror::nextChordKey(editChord_.key, 1), redraw = true;
+  if (mappedInput.wasPressed(Btn::Left)) editChord_.key = mirror::nextChordKey(editChord_.key, -1), redraw = true;
+  if (mappedInput.wasPressed(Btn::Right)) editChord_.key = mirror::nextChordKey(editChord_.key, 1), redraw = true;
+  if (!mappedInput.hasTouch()) {
+    if (mappedInput.wasPressed(Btn::Up)) cursor_ = (cursor_ + kRowCount - 1) % kRowCount, redraw = true;
+    if (mappedInput.wasPressed(Btn::Down)) cursor_ = (cursor_ + 1) % kRowCount, redraw = true;
   }
-  if (!mappedInput.wasReleased(Btn::Confirm)) return redraw;
 
-  if (cursor_ < kRowKey) {
-    editChord_.mods ^= kModifierRows[cursor_].mask;
-  } else if (cursor_ == kRowKey) {
+  int row = mappedInput.wasReleased(Btn::Confirm) ? cursor_ : -1;
+  int x = 0, y = 0;
+  buildChordButtons();
+  if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y)) {
+    const int hit = buttons_.hit(renderer, x, y, chordButtonsTop());
+    if (hit >= 0) row = cursor_ = hit;
+  }
+  if (row < 0) return redraw;
+
+  if (row < kRowKey) {
+    editChord_.mods ^= kModifierRows[row].mask;
+  } else if (row == kRowKey) {
     editChord_.key = mirror::nextChordKey(editChord_.key, 1);
   } else if (mirror::checkChord(editChord_) == mirror::ChordCheck::Ok) {
     chord_ = editChord_;
@@ -189,30 +210,21 @@ void MirrorActivity::drawKeyGrid(const char* title, const char* const* labels, i
   }
   text.moveTo(renderer.getScreenHeight() - 3 * text.step());
   if (!note_.empty()) text.line(note_);
-  text.line(mappedInput.hasTouch() ? "Tap or slide  Back: close" : "Arrows: move  Confirm: press  Back: close");
+  text.line(mappedInput.hasTouch() ? "Tap or slide  Home / Back: close" : "Arrows: move  Confirm: press  Back: close");
 }
 
 void MirrorActivity::drawChordSettings() {
   renderer.clearScreen();
-  mirror::TextColumn text(renderer, renderer.getScreenHeight() / 5);
+  mirror::TextColumn text(renderer, renderer.getScreenHeight() / 8);
   text.line("Trigger chord", true);
   text.line(mirror::chordLabel(editChord_), true);
-  text.gap();
-  for (int row = 0; row < kRowCount; ++row) {
-    std::string label = "Save";
-    if (row < kRowKey)
-      label =
-          std::string(kModifierRows[row].name) + ": " + ((editChord_.mods & kModifierRows[row].mask) ? "on" : "off");
-    else if (row == kRowKey)
-      label = "Key: " + mirror::chordLabel({0, editChord_.key});
-    text.line((row == cursor_ ? "> " : "  ") + label, row == cursor_);
-  }
-  text.gap();
   const mirror::ChordCheck check = mirror::checkChord(editChord_);
-  text.line(check == mirror::ChordCheck::Ok ? "Confirm on the linked screen sends this chord"
+  text.line(check == mirror::ChordCheck::Ok ? "Sent from the Mirror screen to start the app on your phone"
                                             : mirror::chordCheckText(check));
+  buildChordButtons();
+  buttons_.draw(renderer, chordButtonsTop(), cursor_, !mappedInput.hasTouch());
   text.moveTo(renderer.getScreenHeight() - 2 * text.step());
-  text.line("Up/Down: row  Confirm: change  Back: cancel");
+  text.line("Home / Back: cancel");
 }
 
 void MirrorActivity::drawSubScreen() {

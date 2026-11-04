@@ -65,6 +65,8 @@ class MirrorBle {
 
   bool running_ = false;
   std::atomic<uint32_t> pairingUntilMs_{0};
+  std::atomic<bool> linkUp_{false};  // a central is connected, secure or not
+  int advertisingState_ = -1;        // last logged advertising result: -1 unknown, 0 off or failed, 1 on
   std::atomic<bool> connected_{false};
   std::atomic<uint32_t> epoch_{0};
   std::atomic<bool> statusChanged_{false};

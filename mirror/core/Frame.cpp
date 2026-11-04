@@ -8,8 +8,8 @@ int statusBandHeight(const Gfx& gfx) { return gfx.lineHeight(Font::Small) + 4; }
 
 std::string statusBandText(const std::optional<gen::PhoneStatus>& phone) {
   if (phone && phone->dark_mode)
-    return "Phone dark mode: " + std::to_string(phone->minutes_left) + " min  (Confirm: off)";
-  return "Confirm: phone dark mode";
+    return "Phone dark mode: " + std::to_string(phone->minutes_left) + " min  (tap here: off)";
+  return "Phone dark mode: tap here";
 }
 
 DirtyRects renderFrame(TemplateRenderer& renderer, Gfx& gfx, const std::string& bandText) {

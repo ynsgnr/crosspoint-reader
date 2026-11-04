@@ -1,6 +1,7 @@
 #if defined(CROSSPOINT_MIRROR)
 #include "device/MirrorActivity.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "core/Frame.h"
@@ -10,7 +11,6 @@
 namespace {
 constexpr char kDeviceName[] = "E-Ink Reader";  // generic on purpose: the advertisement identifies nothing
 constexpr uint32_t kPairingWindowMs = 120000;
-constexpr unsigned long kHoldMs = 1500;
 constexpr int kPartialsBeforeFull = 10;
 }  // namespace
 
@@ -127,19 +127,42 @@ bool MirrorActivity::phoneAllowsKeyboard() const {
   return !status || status->keyboard_allowed;  // unknown (no app session yet) counts as allowed
 }
 
-bool MirrorActivity::loopStatus() {
-  using Btn = MappedInputManager::Button;
-  bool redraw = false;
+// Status-screen buttons. Touch boards tap them; boards with Confirm move a cursor.
+void MirrorActivity::buildActions() {
+  buttons_.clear();
   if (!ble_.connected()) {
-    if (mappedInput.wasLongPressed(Btn::Confirm, kHoldMs)) {
+    buttons_.add(ble_.pairingOpen() ? "Pairing open: restart" : "Pair phone", static_cast<int>(Action::PairPhone));
+    if (ble_.bondCount() > 0)
+      buttons_.add(armed_ == Action::ForgetPhone ? "Tap again: forget phone" : "Forget phone",
+                   static_cast<int>(Action::ForgetPhone));
+    buttons_.add(armed_ == Action::ToggleKeyboard ? "Tap again: switch (forgets phone)"
+                 : keyboardOn_                    ? "Keyboard: on (tap: off)"
+                                                  : "Keyboard: off (tap: on)",
+                 static_cast<int>(Action::ToggleKeyboard));
+  } else {
+    if (keyboardOn_) buttons_.add("Start mirror on phone", static_cast<int>(Action::StartMirror));
+    if (keyboardOn_) buttons_.add("Unlock phone", static_cast<int>(Action::Unlock));
+  }
+  buttons_.add("Trigger chord", static_cast<int>(Action::ChordSettings));
+}
+
+void MirrorActivity::runAction(Action action) {
+  const bool needsSecondTap = action == Action::ForgetPhone || action == Action::ToggleKeyboard;
+  if (needsSecondTap && armed_ != action) {  // these discard the pairing: ask once
+    armed_ = action;
+    return;
+  }
+  armed_ = Action::None;
+  switch (action) {
+    case Action::PairPhone:
+      bondsForgotten_ = false;
+      ble_.openPairing(kPairingWindowMs);  // the only way an unknown phone can connect
+      break;
+    case Action::ForgetPhone:
       ble_.forgetBonds();
       bondsForgotten_ = true;
-      redraw = true;
-    } else if (mappedInput.wasReleased(Btn::Confirm) && !ble_.pairingOpen()) {
-      bondsForgotten_ = false;
-      ble_.openPairing(kPairingWindowMs);  // "Pair phone": the only way an unknown phone can connect
-      redraw = true;
-    } else if (mappedInput.wasLongPressed(Btn::Left, kHoldMs)) {
+      break;
+    case Action::ToggleKeyboard:
       // The keyboard changes the GATT database, which the phone caches per bond: pair again after switching.
       keyboardOn_ = !keyboardOn_;
       mirror::settings::setKeyboardEnabled(keyboardOn_);
@@ -147,37 +170,70 @@ bool MirrorActivity::loopStatus() {
       ble_.stop();
       startBle();
       bondsForgotten_ = true;
-      redraw = true;
-    }
-  } else {
-    if (mappedInput.wasReleased(Btn::Confirm)) {
-      if (session_->phoneStatus() || session_->active()) {
-        session_->sendCommand(mirror::gen::kCmdToggleDarkMode);  // the new state comes back as a status message
-      } else if (keyboardOn_) {
-        // No app session yet: the chord makes the phone start it.
-        note_ = phoneAllowsKeyboard() && ble_.typeKey(chord_.mods, chord_.key) ? "Start sent" : "Keyboard not ready";
-        redraw = true;
-      }
-    }
-    if (keyboardOn_ && mappedInput.wasLongPressed(Btn::Left, kHoldMs)) {
+      break;
+    case Action::StartMirror:  // the chord makes the phone start its app session
+      note_ = phoneAllowsKeyboard() && ble_.typeKey(chord_.mods, chord_.key) ? "Start sent" : "Keyboard not ready";
+      break;
+    case Action::Unlock:
       openUnlock();
-      redraw = true;
-    }
+      break;
+    case Action::ChordSettings:
+      setScreen(Screen::ChordSettings);
+      break;
+    case Action::None:
+      break;
   }
-  if (mappedInput.wasLongPressed(Btn::Right, kHoldMs)) {
-    setScreen(Screen::ChordSettings);
+}
+
+bool MirrorActivity::loopStatus() {
+  if (session_->active()) return loopChat();
+  using Btn = MappedInputManager::Button;
+  buildActions();
+  const int top = renderer.getScreenHeight() / 2;
+  bool redraw = false;
+  int press = -1;
+  int x = 0, y = 0;
+  if (mappedInput.hasTouch()) {
+    if (mappedInput.wasScreenTapped(x, y)) press = buttons_.hit(renderer, x, y, top);
+  } else {
+    const int n = buttons_.count();
+    if (mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::Right))
+      cursor_ = (cursor_ + 1) % n, redraw = true;
+    if (mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::Left))
+      cursor_ = (cursor_ + n - 1) % n, redraw = true;
+    cursor_ = std::min(cursor_, n - 1);
+    if (mappedInput.wasReleased(Btn::Confirm)) press = cursor_;
+  }
+  if (press >= 0) {
+    runAction(static_cast<Action>(buttons_.id(press)));
+    cursor_ = std::min(press, std::max(0, buttons_.count() - 1));
     redraw = true;
   }
-  // The event goes to the phone; the new scroll position comes back as a diff.
-  if (mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::PageBack)) session_->onButton(mirror::Button::Up);
-  if (mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::PageForward))
-    session_->onButton(mirror::Button::Down);
   return redraw;
+}
+
+// The chat screen: scroll with the side buttons or a swipe; the top of the screen toggles the phone's dark mode.
+bool MirrorActivity::loopChat() {
+  using Btn = MappedInputManager::Button;
+  constexpr int kDarkModeTapHeight = 72;
+  int x = 0, y = 0;
+  const bool tapTop = mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y) && y < kDarkModeTapHeight;
+  if (tapTop || mappedInput.wasReleased(Btn::Confirm))
+    session_->sendCommand(mirror::gen::kCmdToggleDarkMode);  // the new state comes back as a status message
+  const auto swipe = mappedInput.wasSwipe();
+  const bool up = mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::Left) ||
+                  mappedInput.wasPressed(Btn::PageBack) || swipe == MappedInputManager::SwipeDir::Down;
+  const bool down = mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::Right) ||
+                    mappedInput.wasPressed(Btn::PageForward) || swipe == MappedInputManager::SwipeDir::Up;
+  // The event goes to the phone; the new scroll position comes back as a diff.
+  if (up) session_->onButton(mirror::Button::Up);
+  if (down) session_->onButton(mirror::Button::Down);
+  return false;
 }
 
 void MirrorActivity::drawStatus() {
   renderer.clearScreen();
-  mirror::TextColumn text(renderer, renderer.getScreenHeight() / 4);
+  mirror::TextColumn text(renderer, renderer.getScreenHeight() / 8);
   text.line("Mirror", true);
   text.gap();
   using Start = mirror::MirrorBle::StartResult;
@@ -191,35 +247,22 @@ void MirrorActivity::drawStatus() {
     std::snprintf(buf, sizeof buf, "Pairing code: %06d", static_cast<int>(code));
     text.line(buf, true);
     text.line("Type it on your phone.");
-  } else if (ble_.connected()) {
-    text.line("Connected.");
-    text.line("Open a chat app on your phone.");
-    text.gap();
-    text.line("Confirm: phone dark mode on/off");
-    if (keyboardOn_) {
-      text.line("Hold Left: unlock phone");
-      text.line("Confirm before the app runs: start mirror");
-    }
-    text.line("Hold Right: trigger chord");
   } else {
-    const int bonds = ble_.bondCount();
-    text.line(ble_.pairingOpen() ? "Pairing open: Retink app > Pair e-ink device"
-              : bonds            ? "Waiting for your phone"
-                                 : "No phone paired");
+    if (ble_.connected()) {
+      text.line("Connected. Open a chat app on your phone.");
+    } else if (ble_.pairingOpen()) {
+      text.line("Pairing open: Retink app > Pair e-ink device");
+    } else {
+      text.line(ble_.bondCount() ? "Waiting for your phone" : "No phone paired");
+    }
     text.line(std::string("Name: ") + kDeviceName);
-    text.gap();
-    if (!ble_.pairingOpen()) text.line("Confirm: pair phone");
-    if (bondsForgotten_)
-      text.line("Phone forgotten: also remove it in its Bluetooth settings");
-    else if (bonds)
-      text.line("Hold Confirm: forget phone");
-    text.line(keyboardOn_ ? "Keyboard: on (hold Left: off)" : "Keyboard: off (hold Left: on)");
-    text.line("Switching it forgets the phone.");
-    text.line("Hold Right: trigger chord");
+    if (bondsForgotten_) text.line("Phone forgotten: also remove it in its Bluetooth settings");
+    buildActions();
+    buttons_.draw(renderer, renderer.getScreenHeight() / 2, cursor_, !mappedInput.hasTouch());
   }
   text.moveTo(renderer.getScreenHeight() - 3 * text.step());
   if (!note_.empty()) text.line(note_);
-  text.line("Back: leave Mirror");
+  text.line("Home / Back: leave Mirror");
 }
 
 mirror::RefreshKind MirrorActivity::drawFrame() {

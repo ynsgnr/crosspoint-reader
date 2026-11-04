@@ -37,25 +37,30 @@ as one block with a thick bar), a fixed 3-line draft area with cursor. Up/Down (
   drops data from a link that is not encrypted and authenticated. No debug characteristic exists; nothing logs message text.
 * **LE Secure Connections only** (`ble_hs_cfg.sm_sc_only`), MITM on, display-only IO: the passkey is shown on the e-ink screen and typed on the phone. Just Works cannot produce an authenticated bond,
   so such a link is disconnected (`onAuthComplete`).
-* **Pairing window.** An unknown phone may connect only for 2 minutes after *Confirm* on the waiting screen ("Pair phone"). A bonded phone always may, but cannot re-pair outside the window
+* **Pairing window.** An unknown phone may connect only for 2 minutes after you tap **Pair phone** on the Mirror screen. A bonded phone always may, but cannot re-pair outside the window
   (`onPasskeyDisplay` disconnects). Pairing a new phone deletes the old bond (one phone at a time). Nothing is advertised without a bond or an open window.
 * **Privacy.** Resolvable private address (IRK distributed at bonding); the advertisement holds the mirror service UUID, the HID UUID and appearance when the keyboard is on, and the generic name `E-Ink Reader`.
   No content, serial or per-device data. (The mirror service UUID is a project constant; the Companion Device Manager filters on it.)
 * **Migration.** `sec_epoch` in NVS (`kSecurityEpoch`); bonds made under an older model are deleted at the next start. The app does the same (`DeviceBond.SECURITY_EPOCH`).
 
+## Controls
+The Mirror screen has a column of buttons (`ButtonColumn`): tap them on touch boards (the X4 Pro has no Confirm button by default); on boards without touch, move the cursor with the arrow keys and press Confirm.
+Not linked: **Pair phone**, **Forget phone**, **Keyboard on/off**, **Trigger chord**. Linked: **Start mirror on phone**, **Unlock phone**, **Trigger chord**. Forget and Keyboard ask for a second tap because they discard the pairing.
+In the chat view the side buttons or a swipe scroll, and tapping the top of the screen (or Confirm) toggles the phone's dark mode. Home / Back leaves the screen you are on.
+
 ## Keyboard, unlock and trigger chord (opt-in)
-* Off by default. *Hold Left* on the waiting screen switches the HID keyboard on or off (`MirrorSettings`) and forgets the paired phone, because the keyboard changes the GATT database the phone caches per bond.
+* Off by default. The **Keyboard** button switches the HID keyboard on or off (`MirrorSettings`) and forgets the paired phone, because the keyboard changes the GATT database the phone caches per bond.
   With it on, the same bond and the same pairing carry the mirror and the keyboard; there is no second pairing entry.
 * `MirrorHid`: HID-over-GATT keyboard + consumer + system-control report map, HID Information, Protocol Mode, Control Point, Battery, PnP. Built by hand (not `NimBLEHIDDevice`) so all of it needs the authenticated link.
-* **Unlock screens** (connected: *hold Left*): opening them wakes the phone first (a Shift tap, then the System Wake Up usage). The PIN pad (1-9, 0, Enter) and the pattern screen work by touch or with the arrow keys + Confirm.
+* **Unlock screens** (button **Unlock phone**): opening them wakes the phone first (a Shift tap, then the System Wake Up usage). The PIN pad (1-9, 0, Enter) and the pattern screen work by touch or with the arrow keys + Confirm.
   Pattern: dots 0-8 row by row, each sent as its digit when the finger first touches it (Android's pattern lock reads the string "01258" for 0>1>2>5>8); lifting the finger sends Enter ("Done" does that on boards without touch).
   Every key is sent and released at once; no PIN, pattern, length or buffer exists, and the pattern is not drawn (e-ink would keep it). The phone reports `locked`; the screen closes by itself when it unlocks.
-* **Trigger chord**: *Confirm* on the linked screen before the phone app runs sends the chord over HID (default Ctrl+Alt+Shift+M). *Hold Right* edits it (`core/Chord`: at least two modifiers, no Meta, letter or digit,
+* **Trigger chord**: **Start mirror on phone** (before the phone app runs) sends the chord over HID (default Ctrl+Alt+Shift+M). **Trigger chord** edits it (`core/Chord`: at least two modifiers, no Meta, letter or digit,
   common two-modifier shortcuts refused). The device announces it to the phone (`chord` command) so both sides agree.
 
 ## Status band and dark mode
-Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): `Confirm: phone dark mode`, or `Phone dark mode: N min (Confirm: off)`
-while the phone reports it. Confirm sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
+Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): `Phone dark mode: tap here`, or `Phone dark mode: N min  (tap here: off)`
+while the phone reports it. Tapping the top of the screen (or Confirm) sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template

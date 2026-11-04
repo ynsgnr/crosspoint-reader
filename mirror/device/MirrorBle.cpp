@@ -70,7 +70,7 @@ void configureSecurity() {
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
   NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
   NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-  NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_RANDOM_DEFAULT);
+  if (!NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_RANDOM_DEFAULT)) LOG_ERR("MIRROR", "private address unavailable");
   ble_gatts_set_clt_cfg_perm_flags(kCccdFlags);  // subscribing needs the same authenticated link as reading
   if (!settings::securityEpochCurrent(kSecurityEpoch)) NimBLEDevice::deleteAllBonds();  // old model: pair again
 }
@@ -126,7 +126,7 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   connected_ = false;
   statusChanged_ = true;
   pairingUntilMs_ = 0;
-  LOG_INF("MIRROR", "up, %d bonds", NimBLEDevice::getNumBonds());
+  LOG_INF("MIRROR", "up, %d bonds, keyboard %s", NimBLEDevice::getNumBonds(), keyboard ? "on" : "off");
   return StartResult::Ok;
 }
 
@@ -141,6 +141,8 @@ void MirrorBle::stop() {
   server_ = nullptr;
   eventChar_ = nullptr;
   hid_.reset();
+  linkUp_ = false;
+  advertisingState_ = -1;
   connected_ = false;
   passkey_ = -1;
   pairingUntilMs_ = 0;
@@ -150,6 +152,7 @@ void MirrorBle::stop() {
 }
 
 void MirrorBle::openPairing(uint32_t durationMs) {
+  LOG_INF("MIRROR", "pairing window open for %u s", static_cast<unsigned>(durationMs / 1000));
   pairingUntilMs_ = millis() + durationMs;
   statusChanged_ = true;
 }
@@ -162,10 +165,19 @@ bool MirrorBle::pairingOpen() const {
 void MirrorBle::service() {
   if (!running_) return;
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  const bool wanted = !connected_ && (pairingOpen() || NimBLEDevice::getNumBonds() > 0);
-  if (wanted && !adv->isAdvertising()) adv->start();
-  if (!wanted && adv->isAdvertising()) adv->stop();
+  const bool wanted = !linkUp_ && (pairingOpen() || NimBLEDevice::getNumBonds() > 0);
+  if (wanted && !adv->isAdvertising()) {
+    const int started = adv->start() ? 1 : 0;
+    if (started != advertisingState_) LOG_INF("MIRROR", "advertising %s", started ? "on" : "FAILED to start");
+    advertisingState_ = started;
+  }
+  if (!wanted && adv->isAdvertising()) {
+    adv->stop();
+    advertisingState_ = -1;
+    LOG_INF("MIRROR", "advertising off");
+  }
   if (pairingUntilMs_ != 0 && !pairingOpen()) {
+    LOG_INF("MIRROR", "pairing window closed");
     pairingUntilMs_ = 0;  // window expired
     statusChanged_ = true;
   }
@@ -218,11 +230,14 @@ void MirrorBle::onWrite(const uint8_t* data, size_t len, const NimBLEConnInfo& l
 }
 
 bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
+  const bool bonded = NimBLEDevice::isBonded(link.getIdAddress());
+  LOG_INF("MIRROR", "central connected, bonded %d, window open %d", bonded, pairingOpen());
   // An unknown phone may only connect while the user has the pairing window open.
-  if (!NimBLEDevice::isBonded(link.getIdAddress()) && !pairingOpen()) {
+  if (!bonded && !pairingOpen()) {
     server_->disconnect(link.getConnHandle());
     return false;
   }
+  linkUp_ = true;
   {
     std::lock_guard<std::mutex> g(mutex_);  // bytes of a previous link must not reach the new session
     inbound_.clear();
@@ -237,6 +252,8 @@ bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
 }
 
 void MirrorBle::onDisconnected() {
+  LOG_INF("MIRROR", "central disconnected");
+  linkUp_ = false;
   connected_ = false;
   connHandle_ = kNoConnection;
   if (hid_) hid_->onLinkDown();
@@ -260,6 +277,8 @@ uint32_t MirrorBle::onPasskeyDisplay() {
 }
 
 void MirrorBle::onAuthComplete(const NimBLEConnInfo& link) {
+  LOG_INF("MIRROR", "auth: encrypted %d, authenticated %d, bonded %d", link.isEncrypted(), link.isAuthenticated(),
+          link.isBonded());
   passkey_ = -1;
   statusChanged_ = true;
   // Encrypted alone is not enough: a Just Works bond has no passkey and could be made by anyone nearby.

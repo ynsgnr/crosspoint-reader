@@ -11,6 +11,7 @@
 #include "core/Chord.h"
 #include "core/RefreshPolicy.h"
 #include "core/Session.h"
+#include "device/ButtonColumn.h"
 #include "device/GfxAdapter.h"
 #include "device/MirrorBle.h"
 
@@ -28,6 +29,7 @@ class MirrorActivity final : public Activity {
 
  private:
   enum class Screen { Status, Unlock, Pattern, ChordSettings };
+  enum class Action { None, PairPhone, ForgetPhone, ToggleKeyboard, StartMirror, Unlock, ChordSettings };
 
   // State of the current link, cleared whenever the connection changes.
   struct Link {
@@ -46,6 +48,9 @@ class MirrorActivity final : public Activity {
   void announceKeyboardToPhone();
   bool phoneAllowsKeyboard() const;
   bool loopStatus();
+  bool loopChat();
+  void buildActions();
+  void runAction(Action action);
   void drawStatus();
   mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
 
@@ -53,6 +58,8 @@ class MirrorActivity final : public Activity {
   bool loopUnlock();
   bool loopPattern();
   bool loopChordSettings();
+  void buildChordButtons();
+  int chordButtonsTop() const;
   void openUnlock();
   bool sendKey(uint8_t usage);  // false when the keyboard is not ready
   void sendChordToPhone();
@@ -83,6 +90,8 @@ class MirrorActivity final : public Activity {
   std::string note_;             // one line of feedback; never a typed digit
   uint16_t patternVisited_ = 0;  // dots sent during this touch; cleared on release, never drawn
   bool bondsForgotten_ = false;
+  mirror::ButtonColumn buttons_;
+  Action armed_ = Action::None;  // a destructive action waiting for its second tap
 
   // Drawing state.
   std::string drawnBand_;
