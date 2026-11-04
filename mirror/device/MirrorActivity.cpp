@@ -1,16 +1,16 @@
 #if defined(CROSSPOINT_MIRROR)
 #include "device/MirrorActivity.h"
 
-#include <HalDisplay.h>
-#include <Logging.h>
+#include <cstdio>
 
 #include "core/Frame.h"
 #include "device/MirrorSettings.h"
-#include "fontIds.h"
+#include "device/ScreenText.h"
 
 namespace {
 constexpr char kDeviceName[] = "E-Ink Reader";  // generic on purpose: the advertisement identifies nothing
 constexpr uint32_t kPairingWindowMs = 120000;
+constexpr unsigned long kHoldMs = 1500;
 constexpr int kPartialsBeforeFull = 10;
 }  // namespace
 
@@ -34,22 +34,6 @@ void MirrorActivity::onEnter() {
   requestUpdate();
 }
 
-void MirrorActivity::startBle() {
-  const uint8_t features = keyboardOn_ ? mirror::gen::kFeatureHidKeyboard : 0;
-  const auto result = ble_.start(kDeviceName, session_->capabilities(gfx_, kDeviceName, features), keyboardOn_);
-  startup_ = result == mirror::MirrorBle::StartResult::Ok         ? Startup::Ok
-             : result == mirror::MirrorBle::StartResult::NoMemory ? Startup::NoMemory
-                                                                  : Startup::Failed;
-}
-
-void MirrorActivity::setScreen(Screen s) {
-  screen_ = s;
-  cursor_ = 0;
-  patternVisited_ = 0;
-  note_.clear();  // nothing typed is kept when a screen is left
-  if (s == Screen::ChordSettings) editChord_ = chord_;
-}
-
 void MirrorActivity::onExit() {
   note_.clear();
   ble_.stop();
@@ -60,9 +44,21 @@ void MirrorActivity::onExit() {
   Activity::onExit();
 }
 
+void MirrorActivity::startBle() {
+  const uint8_t features = keyboardOn_ ? mirror::gen::kFeatureHidKeyboard : 0;
+  startup_ = ble_.start(kDeviceName, session_->capabilities(gfx_, kDeviceName, features), keyboardOn_);
+}
+
+void MirrorActivity::setScreen(Screen s) {
+  screen_ = s;
+  cursor_ = 0;
+  patternVisited_ = 0;
+  note_.clear();  // nothing typed is kept when a screen is left
+  if (s == Screen::ChordSettings) editChord_ = chord_;
+}
+
 void MirrorActivity::loop() {
-  using Btn = MappedInputManager::Button;
-  if (mappedInput.wasReleased(Btn::Back)) {
+  if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     if (screen_ == Screen::Status) return finish();
     {
       std::lock_guard<std::mutex> lock(mutex_);
@@ -70,11 +66,11 @@ void MirrorActivity::loop() {
     }
     return requestUpdate();
   }
-  if (startup_ != Startup::Ok) return;
+  if (startup_ != mirror::MirrorBle::StartResult::Ok) return;
 
   ble_.service();
   bool redraw = ble_.takeStatusChanged();
-  if (ble_.connected() != wasConnected_ || ble_.connectionEpoch() != seenEpoch_) {
+  if (ble_.connected() != link_.connected || ble_.connectionEpoch() != link_.epoch) {
     onLinkChanged();
     redraw = true;
   }
@@ -87,8 +83,10 @@ void MirrorActivity::loop() {
   if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
 
   announceKeyboardToPhone();
-
   switch (screen_) {
+    case Screen::Status:
+      redraw |= loopStatus();
+      break;
     case Screen::Unlock:
       redraw |= loopUnlock();
       break;
@@ -98,21 +96,15 @@ void MirrorActivity::loop() {
     case Screen::ChordSettings:
       redraw |= loopChordSettings();
       break;
-    case Screen::Status:
-      redraw |= loopStatus();
-      break;
   }
   if (redraw) requestUpdate();
 }
 
 // Every connection starts a new sequence space; a disconnect returns to the waiting screen.
 void MirrorActivity::onLinkChanged() {
-  wasConnected_ = ble_.connected();
-  seenEpoch_ = ble_.connectionEpoch();
+  link_ = Link{ble_.connected(), ble_.connectionEpoch()};
   resetSession();
-  hidReadyAnnounced_ = false;
-  phoneWasLocked_ = true;
-  if (wasConnected_ || (screen_ != Screen::Unlock && screen_ != Screen::Pattern)) return;
+  if (link_.connected || (screen_ != Screen::Unlock && screen_ != Screen::Pattern)) return;
   std::lock_guard<std::mutex> lock(mutex_);
   setScreen(Screen::Status);
 }
@@ -120,13 +112,13 @@ void MirrorActivity::onLinkChanged() {
 // The phone's first status on a connection means its app is up: tell it the chord and the HID state.
 void MirrorActivity::announceKeyboardToPhone() {
   if (!keyboardOn_ || !ble_.connected() || !session_->phoneStatus()) return;
-  if (chordSentEpoch_ != seenEpoch_) {
-    chordSentEpoch_ = seenEpoch_;
+  if (!link_.chordAnnounced) {
+    link_.chordAnnounced = true;
     sendChordToPhone();
   }
-  if (ble_.keyboardReady() != hidReadyAnnounced_) {
-    hidReadyAnnounced_ = ble_.keyboardReady();
-    session_->sendCommand(mirror::gen::kCmdHidStatus, hidReadyAnnounced_ ? 1 : 0);
+  if (ble_.keyboardReady() != link_.hidAnnounced) {
+    link_.hidAnnounced = ble_.keyboardReady();
+    session_->sendCommand(mirror::gen::kCmdHidStatus, link_.hidAnnounced ? 1 : 0);
   }
 }
 
@@ -135,13 +127,11 @@ bool MirrorActivity::phoneAllowsKeyboard() const {
   return !status || status->keyboard_allowed;  // unknown (no app session yet) counts as allowed
 }
 
-void MirrorActivity::sendChordToPhone() { session_->sendCommand(mirror::gen::kCmdChord, chord_.mods, chord_.key); }
-
 bool MirrorActivity::loopStatus() {
   using Btn = MappedInputManager::Button;
   bool redraw = false;
   if (!ble_.connected()) {
-    if (mappedInput.wasLongPressed(Btn::Confirm, 1500)) {
+    if (mappedInput.wasLongPressed(Btn::Confirm, kHoldMs)) {
       ble_.forgetBonds();
       bondsForgotten_ = true;
       redraw = true;
@@ -149,7 +139,7 @@ bool MirrorActivity::loopStatus() {
       bondsForgotten_ = false;
       ble_.openPairing(kPairingWindowMs);  // "Pair phone": the only way an unknown phone can connect
       redraw = true;
-    } else if (mappedInput.wasLongPressed(Btn::Left, 1500)) {
+    } else if (mappedInput.wasLongPressed(Btn::Left, kHoldMs)) {
       // The keyboard changes the GATT database, which the phone caches per bond: pair again after switching.
       keyboardOn_ = !keyboardOn_;
       mirror::settings::setKeyboardEnabled(keyboardOn_);
@@ -169,12 +159,12 @@ bool MirrorActivity::loopStatus() {
         redraw = true;
       }
     }
-    if (keyboardOn_ && mappedInput.wasLongPressed(Btn::Left, 1500)) {
+    if (keyboardOn_ && mappedInput.wasLongPressed(Btn::Left, kHoldMs)) {
       openUnlock();
       redraw = true;
     }
   }
-  if (mappedInput.wasLongPressed(Btn::Right, 1500)) {
+  if (mappedInput.wasLongPressed(Btn::Right, kHoldMs)) {
     setScreen(Screen::ChordSettings);
     redraw = true;
   }
@@ -185,293 +175,56 @@ bool MirrorActivity::loopStatus() {
   return redraw;
 }
 
-namespace {
-constexpr int kGridCols = 3;
-constexpr uint8_t kEnterUsage = 0x28;
-
-// PIN pad. The phone is woken when the screen opens, so there is no Wake key.
-constexpr int kPinKeys = 12, kPinRows = 4;
-const char* const kPinLabels[kPinKeys] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Pattern", "0", "Enter"};
-enum PinKey { kPinToPattern = 9, kPinZero = 10, kPinEnter = 11 };
-
-// Pattern: dots 0-8 row by row (the Android pattern lock reads them as the digits "0".."8"). Lifting the finger sends
-// Enter; "Done" does the same for boards without touch.
-constexpr int kDots = 9, kPatternKeys = 11, kPatternRows = 4;
-const char* const kPatternLabels[kPatternKeys] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "Done", "PIN"};
-enum PatternKey { kPatternDone = 9, kPatternToPin = 10 };
-
-struct Cell {
-  int x, y, w, h;
-};
-
-Cell gridCell(int i, int rows, int screenW, int screenH) {
-  const int top = screenH / 5, gap = 12;
-  const int cellW = (screenW - gap * (kGridCols + 1)) / kGridCols;
-  const int cellH = (screenH * 3 / 5 - gap * (rows - 1)) / rows;
-  return {gap + (i % kGridCols) * (cellW + gap), top + (i / kGridCols) * (cellH + gap), cellW, cellH};
-}
-
-int cellAt(int x, int y, int count, int rows, int screenW, int screenH) {
-  for (int i = 0; i < count; ++i) {
-    const Cell c = gridCell(i, rows, screenW, screenH);
-    if (x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h) return i;
-  }
-  return -1;
-}
-}  // namespace
-
-// Every key goes out at once and is forgotten: no PIN, no pattern, no length, no buffer.
-bool MirrorActivity::sendKey(uint8_t usage) {
-  const bool allowed = phoneAllowsKeyboard();
-  const bool sent = allowed && ble_.typeKey(0, usage);
-  note_ = sent      ? ""
-          : allowed ? "Keyboard not ready: check the phone's Bluetooth"
-                    : "Keyboard is off: enable it in the app";
-  return sent;
-}
-
-void MirrorActivity::openUnlock() {
-  setScreen(Screen::Unlock);
-  if (phoneAllowsKeyboard()) ble_.wakePhone();  // before anything is typed
-  session_->sendCommand(mirror::gen::kCmdUnlockRequest);
-}
-
-void MirrorActivity::finishPattern() {
-  if (patternVisited_) sendKey(kEnterUsage);
-  patternVisited_ = 0;
-}
-
-// Moves the cursor with the arrow keys; returns true when it moved.
-bool MirrorActivity::moveCursor(int count) {
-  using Btn = MappedInputManager::Button;
-  int delta = 0;
-  if (mappedInput.wasPressed(Btn::Left)) delta = -1;
-  if (mappedInput.wasPressed(Btn::Right)) delta = 1;
-  if (mappedInput.wasPressed(Btn::Up)) delta = -kGridCols;
-  if (mappedInput.wasPressed(Btn::Down)) delta = kGridCols;
-  if (delta == 0) return false;
-  cursor_ = (cursor_ + delta + count) % count;
-  return true;
-}
-
-// The phone reports when it unlocks: leave the unlock screens.
-bool MirrorActivity::leaveWhenUnlocked() {
-  const auto& phone = session_->phoneStatus();
-  const bool justUnlocked = phone && !phone->locked && phoneWasLocked_;
-  phoneWasLocked_ = phone ? phone->locked : true;
-  if (!justUnlocked) return false;
-  setScreen(Screen::Status);
-  note_ = "Phone unlocked";
-  return true;
-}
-
-bool MirrorActivity::loopUnlock() {
-  bool redraw = moveCursor(kPinKeys);
-  int press = mappedInput.wasReleased(MappedInputManager::Button::Confirm) ? cursor_ : -1;
-  int x = 0, y = 0;
-  if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y)) {
-    const int hit = cellAt(x, y, kPinKeys, kPinRows, renderer.getScreenWidth(), renderer.getScreenHeight());
-    if (hit >= 0) press = cursor_ = hit;
-  }
-  if (press == kPinToPattern) {
-    setScreen(Screen::Pattern);
-    return true;
-  }
-  if (press == kPinEnter)
-    sendKey(kEnterUsage);
-  else if (press >= 0)
-    sendKey(mirror::digitUsage(press == kPinZero ? 0 : press + 1));
-  return redraw | (press >= 0) | leaveWhenUnlocked();
-}
-
-bool MirrorActivity::loopPattern() {
-  bool redraw = moveCursor(kPatternKeys);
-  int press = mappedInput.wasReleased(MappedInputManager::Button::Confirm) ? cursor_ : -1;
-  int x = 0, y = 0;
-  const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
-  if (mappedInput.hasTouch()) {
-    // A finger sliding over the dots sends each one once. The path is not drawn: e-ink would keep it visible.
-    if (mappedInput.wasScreenTouchDown(x, y) || mappedInput.isScreenTouchHeld(x, y))
-      visitDot(cellAt(x, y, kDots, kPatternRows, w, h));
-    if (mappedInput.wasScreenTouchReleased()) finishPattern();
-    if (mappedInput.wasScreenTapped(x, y)) {
-      const int hit = cellAt(x, y, kPatternKeys, kPatternRows, w, h);
-      if (hit >= kDots) press = cursor_ = hit;  // dots are handled by the slide above
-    }
-  }
-  if (press == kPatternToPin) {
-    patternVisited_ = 0;
-    setScreen(Screen::Unlock);
-    return true;
-  }
-  if (press == kPatternDone)
-    finishPattern();
-  else if (press >= 0)
-    visitDot(press);
-  return redraw | (press >= 0) | leaveWhenUnlocked();
-}
-
-// Sends dot `dot` (0-8) unless it is already part of this pattern.
-void MirrorActivity::visitDot(int dot) {
-  if (dot < 0 || dot >= kDots || (patternVisited_ & (1u << dot))) return;
-  patternVisited_ |= 1u << dot;
-  sendKey(mirror::digitUsage(dot));
-}
-
-bool MirrorActivity::loopChordSettings() {
-  using Btn = MappedInputManager::Button;
-  constexpr int kRows = 5;  // Ctrl, Alt, Shift, Key, Save
-  bool redraw = false;
-  if (mappedInput.wasPressed(Btn::Up)) cursor_ = (cursor_ + kRows - 1) % kRows, redraw = true;
-  if (mappedInput.wasPressed(Btn::Down)) cursor_ = (cursor_ + 1) % kRows, redraw = true;
-  if (cursor_ == 3) {
-    if (mappedInput.wasPressed(Btn::Left)) editChord_.key = mirror::nextChordKey(editChord_.key, -1), redraw = true;
-    if (mappedInput.wasPressed(Btn::Right)) editChord_.key = mirror::nextChordKey(editChord_.key, 1), redraw = true;
-  }
-  if (mappedInput.wasReleased(Btn::Confirm)) {
-    redraw = true;
-    if (cursor_ == 0)
-      editChord_.mods ^= mirror::kModCtrl;
-    else if (cursor_ == 1)
-      editChord_.mods ^= mirror::kModAlt;
-    else if (cursor_ == 2)
-      editChord_.mods ^= mirror::kModShift;
-    else if (cursor_ == 3)
-      editChord_.key = mirror::nextChordKey(editChord_.key, 1);
-    else if (mirror::checkChord(editChord_) == mirror::ChordCheck::Ok) {
-      chord_ = editChord_;
-      mirror::settings::setChord(chord_);
-      if (ble_.connected() && session_->phoneStatus()) sendChordToPhone();
-      setScreen(Screen::Status);
-      note_ = "Chord saved";
-    }
-  }
-  return redraw;
-}
-
 void MirrorActivity::drawStatus() {
   renderer.clearScreen();
-  int y = renderer.getScreenHeight() / 4;
-  const int lh = renderer.getLineHeight(UI_10_FONT_ID) + 6;
-  auto line = [&](const std::string& s, bool bold = false) {
-    renderer.drawCenteredText(UI_10_FONT_ID, y, s.c_str(), true, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    y += lh;
-  };
-  line("Mirror", true);
-  y += lh / 2;
-  switch (startup_) {
-    case Startup::NoMemory:
-      line("Not enough free memory for Bluetooth.");
-      line("Go back and try again.");
-      break;
-    case Startup::Failed:
-      line("Bluetooth could not start.");
-      break;
-    case Startup::Ok: {
-      const int32_t code = ble_.pairingPasskey();
-      if (code >= 0) {
-        char buf[32];
-        std::snprintf(buf, sizeof buf, "Pairing code: %06d", static_cast<int>(code));
-        line(buf, true);
-        line("Type it on your phone.");
-      } else if (ble_.connected()) {
-        line("Connected.");
-        line("Open a chat app on your phone.");
-        y += lh / 2;
-        line("Confirm: phone dark mode on/off");
-        if (keyboardOn_) {
-          line("Hold Left: unlock phone");
-          line("Confirm before the app runs: start mirror");
-        }
-        line("Hold Right: trigger chord");
-      } else {
-        const int bonds = ble_.bondCount();
-        line(ble_.pairingOpen() ? "Pairing open: Retink app > Pair e-ink device"
-             : bonds            ? "Waiting for your phone"
-                                : "No phone paired");
-        line(std::string("Name: ") + kDeviceName);
-        y += lh / 2;
-        if (!ble_.pairingOpen()) line("Confirm: pair phone");
-        if (bondsForgotten_)
-          line("Phone forgotten: also remove it in its Bluetooth settings");
-        else if (bonds)
-          line("Hold Confirm: forget phone");
-        line(keyboardOn_ ? "Keyboard: on (hold Left: off)" : "Keyboard: off (hold Left: on)");
-        line("Switching it forgets the phone.");
-        line("Hold Right: trigger chord");
-      }
-      break;
+  mirror::TextColumn text(renderer, renderer.getScreenHeight() / 4);
+  text.line("Mirror", true);
+  text.gap();
+  using Start = mirror::MirrorBle::StartResult;
+  if (startup_ == Start::NoMemory) {
+    text.line("Not enough free memory for Bluetooth.");
+    text.line("Go back and try again.");
+  } else if (startup_ == Start::Failed) {
+    text.line("Bluetooth could not start.");
+  } else if (const int32_t code = ble_.pairingPasskey(); code >= 0) {
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "Pairing code: %06d", static_cast<int>(code));
+    text.line(buf, true);
+    text.line("Type it on your phone.");
+  } else if (ble_.connected()) {
+    text.line("Connected.");
+    text.line("Open a chat app on your phone.");
+    text.gap();
+    text.line("Confirm: phone dark mode on/off");
+    if (keyboardOn_) {
+      text.line("Hold Left: unlock phone");
+      text.line("Confirm before the app runs: start mirror");
     }
+    text.line("Hold Right: trigger chord");
+  } else {
+    const int bonds = ble_.bondCount();
+    text.line(ble_.pairingOpen() ? "Pairing open: Retink app > Pair e-ink device"
+              : bonds            ? "Waiting for your phone"
+                                 : "No phone paired");
+    text.line(std::string("Name: ") + kDeviceName);
+    text.gap();
+    if (!ble_.pairingOpen()) text.line("Confirm: pair phone");
+    if (bondsForgotten_)
+      text.line("Phone forgotten: also remove it in its Bluetooth settings");
+    else if (bonds)
+      text.line("Hold Confirm: forget phone");
+    text.line(keyboardOn_ ? "Keyboard: on (hold Left: off)" : "Keyboard: off (hold Left: on)");
+    text.line("Switching it forgets the phone.");
+    text.line("Hold Right: trigger chord");
   }
-  y = renderer.getScreenHeight() - 3 * lh;
-  if (!note_.empty()) line(note_);
-  line("Back: leave Mirror");
-}
-
-void MirrorActivity::drawKeyGrid(const char* title, const char* const* labels, int count, int rows) {
-  renderer.clearScreen();
-  const int lh = renderer.getLineHeight(UI_10_FONT_ID) + 6;
-  int y = lh / 2;
-  renderer.drawCenteredText(UI_10_FONT_ID, y, title, true, EpdFontFamily::BOLD);
-  y += lh;
-  const auto& phone = session_->phoneStatus();
-  renderer.drawCenteredText(UI_10_FONT_ID, y,
-                            !phone          ? "Phone state unknown"
-                            : phone->locked ? "Phone is locked"
-                                            : "Phone is unlocked");
-  // On touch boards no key is highlighted: e-ink would keep showing the last key after power-off.
-  const bool showCursor = !mappedInput.hasTouch();
-  for (int i = 0; i < count; ++i) {
-    const Cell c = gridCell(i, rows, renderer.getScreenWidth(), renderer.getScreenHeight());
-    const bool selected = showCursor && i == cursor_;
-    renderer.drawRect(c.x, c.y, c.w, c.h, selected ? 4 : 1, true);
-    const int tw = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
-    renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
-                      labels[i], true, selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-  }
-  y = renderer.getScreenHeight() - 2 * lh;
-  if (!note_.empty()) renderer.drawCenteredText(UI_10_FONT_ID, y - lh, note_.c_str());
-  renderer.drawCenteredText(
-      UI_10_FONT_ID, y,
-      mappedInput.hasTouch() ? "Tap or slide  Back: close" : "Arrows: move  Confirm: press  Back: close");
-}
-
-void MirrorActivity::drawUnlock() { drawKeyGrid("Unlock phone: PIN", kPinLabels, kPinKeys, kPinRows); }
-
-void MirrorActivity::drawPattern() { drawKeyGrid("Unlock phone: pattern", kPatternLabels, kPatternKeys, kPatternRows); }
-
-void MirrorActivity::drawChordSettings() {
-  renderer.clearScreen();
-  const int lh = renderer.getLineHeight(UI_10_FONT_ID) + 6;
-  int y = renderer.getScreenHeight() / 5;
-  auto line = [&](const std::string& s, bool bold = false) {
-    renderer.drawCenteredText(UI_10_FONT_ID, y, s.c_str(), true, bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
-    y += lh;
-  };
-  line("Trigger chord", true);
-  line(mirror::chordLabel(editChord_), true);
-  y += lh / 2;
-  const std::string rows[5] = {std::string("Ctrl: ") + ((editChord_.mods & mirror::kModCtrl) ? "on" : "off"),
-                               std::string("Alt: ") + ((editChord_.mods & mirror::kModAlt) ? "on" : "off"),
-                               std::string("Shift: ") + ((editChord_.mods & mirror::kModShift) ? "on" : "off"),
-                               std::string("Key: ") + mirror::chordLabel({0, editChord_.key}), "Save"};
-  for (int i = 0; i < 5; ++i) line((i == cursor_ ? "> " : "  ") + rows[i], i == cursor_);
-  y += lh / 2;
-  const mirror::ChordCheck check = mirror::checkChord(editChord_);
-  line(check == mirror::ChordCheck::Ok ? "Confirm on the linked screen sends this chord"
-                                       : mirror::chordCheckText(check));
-  y = renderer.getScreenHeight() - 2 * lh;
-  line("Up/Down: row  Confirm: change  Back: cancel");
+  text.moveTo(renderer.getScreenHeight() - 3 * text.step());
+  if (!note_.empty()) text.line(note_);
+  text.line("Back: leave Mirror");
 }
 
 mirror::RefreshKind MirrorActivity::drawFrame() {
   if (screen_ != Screen::Status) {
-    if (screen_ == Screen::Unlock)
-      drawUnlock();
-    else if (screen_ == Screen::Pattern)
-      drawPattern();
-    else
-      drawChordSettings();
+    drawSubScreen();
     const bool full = drawnScreen_ != screen_ || ++subScreenPartials_ >= kPartialsBeforeFull;  // clears ghosting
     drawnScreen_ = screen_;
     statusShown_ = false;

@@ -1,9 +1,7 @@
 #pragma once
 #if defined(CROSSPOINT_MIRROR)
-// BLE HID-over-GATT keyboard (HID service, battery, device information) next to the mirror service. Built by hand
-// rather than with NimBLEHIDDevice because that helper leaves its characteristics readable without encryption; here
-// every characteristic needs the same authenticated link as the mirror. Keeps no input history: each key is sent and
-// released.
+// BLE HID keyboard next to the mirror service. Built by hand: NimBLEHIDDevice leaves its characteristics readable
+// without encryption. Keeps no input history; each key is sent and released.
 #include <NimBLEDevice.h>
 
 #include <atomic>
@@ -21,14 +19,14 @@ class MirrorHid {
   void onLinkDown() { subscribed_ = false; }
   // Key down, then up. `mods` is the HID modifier byte.
   bool tap(uint16_t connHandle, uint8_t mods, uint8_t usage);
-  // Wakes a sleeping phone: Shift tap, then the System Wake Up usage. Which one works depends on the phone.
+  // Shift tap, then the System Wake Up usage; which one wakes the phone depends on the phone.
   bool wake(uint16_t connHandle);
 
  private:
   bool sendKeys(uint16_t connHandle, uint8_t mods, uint8_t usage);
   bool sendSystem(uint16_t connHandle, uint8_t bits);
 
-  // Tracks the host's subscription to the keyboard input report (this NimBLE version has no subscriber count).
+  // This NimBLE version has no subscriber count, so the subscription is tracked here.
   class Subscription final : public NimBLECharacteristicCallbacks {
    public:
     explicit Subscription(std::atomic<bool>& flag) : flag_(flag) {}

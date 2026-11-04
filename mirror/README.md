@@ -6,7 +6,7 @@ renders the template the phone sends. Security, pairing, the optional keyboard a
 ```
 core/        Wire, Envelope, Session (ack/resync/errors), TemplateRenderer + registry, RefreshPolicy, Gfx   (portable)
 templates/   chat/: ChatRenderer + ChatLayout                                                               (portable)
-device/      MirrorActivity, MirrorBle (NimBLE peripheral), GfxAdapter (GfxRenderer)                        (firmware only)
+device/      MirrorActivity (+ MirrorScreens: unlock, pattern, chord), MirrorBle, MirrorHid, MirrorSettings, GfxAdapter (firmware only)
 generated/   written by retink/scripts/sync-fork.sh; MANIFEST.sha256 detects hand edits
 sim/ tests/  host simulator (PNG frames) and tests; test/golden/ = transcripts from the Kotlin tests
 ```

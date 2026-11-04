@@ -2,9 +2,7 @@
 #if defined(CROSSPOINT_MIRROR)
 // GATT peripheral (NimBLE-Arduino), up only between start() and stop(). NimBLE callbacks run on its host task and
 // only copy bytes into a guarded buffer or set flags; everything else happens on the activity's loop().
-// Security: LE Secure Connections only, MITM (passkey shown on screen), every characteristic and every notification
-// subscription needs an encrypted + authenticated link, a resolvable private address, and only a bonded phone may
-// connect unless the user opened the pairing window.
+// Security: see mirror/README.md. Only a bonded phone may connect unless the pairing window is open.
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -23,7 +21,7 @@ class MirrorBle {
  public:
   enum class StartResult { Ok, NoMemory, Failed };
 
-  // NoMemory when the heap cannot host the stack. `keyboard` adds the HID keyboard to the same GATT server and bond.
+  // `keyboard` adds the HID keyboard to the same GATT server and bond. NoMemory when the heap cannot host the stack.
   StartResult start(const char* deviceName, const std::vector<uint8_t>& capabilities, bool keyboard);
   void stop();  // stops advertising, disconnects, deinitialises the stack
 
@@ -48,10 +46,10 @@ class MirrorBle {
   int bondCount() const;
   void forgetBonds();
 
-  // Explicit "Pair phone": unbonded phones may connect and pair for `durationMs`. Bonded phones always may.
+  // "Pair phone": unbonded phones may connect and pair for `durationMs`.
   void openPairing(uint32_t durationMs);
   bool pairingOpen() const;
-  // Starts or stops advertising as needed (open window or a bond exists, and not connected). Call from loop().
+  // Advertises while the window is open or a bond exists, and not connected. Call from loop().
   void service();
 
   // NimBLE callbacks (public for the callback classes in the .cpp).

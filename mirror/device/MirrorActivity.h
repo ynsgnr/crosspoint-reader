@@ -1,8 +1,11 @@
 #pragma once
 #if defined(CROSSPOINT_MIRROR)
 // Mirror screen: BLE advertising and the connection exist only while it is open.
+// MirrorActivity.cpp: lifecycle, input loop, status and chat drawing. MirrorScreens.cpp: unlock pad, pattern, chord
+// settings.
 #include <memory>
 #include <mutex>
+#include <string>
 
 #include "activities/Activity.h"
 #include "core/Chord.h"
@@ -26,30 +29,40 @@ class MirrorActivity final : public Activity {
  private:
   enum class Screen { Status, Unlock, Pattern, ChordSettings };
 
+  // State of the current link, cleared whenever the connection changes.
+  struct Link {
+    bool connected = false;
+    uint32_t epoch = 0;
+    bool chordAnnounced = false;
+    bool hidAnnounced = false;
+    bool phoneWasLocked = true;
+  };
+
+  // MirrorActivity.cpp
   void resetSession();
   void startBle();
   void setScreen(Screen s);
-  // Per-screen input; each returns true when the screen needs a redraw. Called with mutex_ held.
+  void onLinkChanged();
+  void announceKeyboardToPhone();
+  bool phoneAllowsKeyboard() const;
   bool loopStatus();
+  void drawStatus();
+  mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
+
+  // MirrorScreens.cpp; the loops return true when the screen needs a redraw and run with mutex_ held.
   bool loopUnlock();
   bool loopPattern();
-  bool sendKey(uint8_t usage);  // false when the keyboard is not ready
+  bool loopChordSettings();
   void openUnlock();
+  bool sendKey(uint8_t usage);  // false when the keyboard is not ready
+  void sendChordToPhone();
   void visitDot(int dot);
   void finishPattern();
   bool moveCursor(int count);
   bool leaveWhenUnlocked();
-  bool loopChordSettings();
-  void onLinkChanged();
-  void announceKeyboardToPhone();
-  bool phoneAllowsKeyboard() const;
-  void sendChordToPhone();
-  void drawStatus();
-  void drawUnlock();
-  void drawPattern();
   void drawKeyGrid(const char* title, const char* const* labels, int count, int rows);
   void drawChordSettings();
-  mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
+  void drawSubScreen();
 
   static constexpr uint16_t kMaxPayload = 2048;
 
@@ -57,26 +70,24 @@ class MirrorActivity final : public Activity {
   mirror::MirrorBle ble_;
   mirror::RefreshPolicy policy_;
   std::unique_ptr<mirror::Session> session_;
-  std::mutex mutex_;  // session_/renderer state: written by loop(), read by the render task
-  enum class Startup { Ok, NoMemory, Failed } startup_ = Startup::Failed;
-  uint32_t seenEpoch_ = 0;
-  bool wasConnected_ = false;
-  std::string drawnBand_;
-  bool forceFull_ = true;
-  bool statusShown_ = false;
-  bool bondsForgotten_ = false;
+  std::mutex mutex_;  // session_ and screen state: written by loop(), read by the render task
+  mirror::MirrorBle::StartResult startup_ = mirror::MirrorBle::StartResult::Failed;
+  Link link_;
 
   Screen screen_ = Screen::Status;
   Screen drawnScreen_ = Screen::Status;
   bool keyboardOn_ = false;  // opt-in, persisted
   mirror::Chord chord_ = mirror::kDefaultChord;
   mirror::Chord editChord_ = mirror::kDefaultChord;
-  int cursor_ = 0;               // selected key (unlock) or row (chord settings)
+  int cursor_ = 0;               // selected key (unlock screens) or row (chord settings)
   std::string note_;             // one line of feedback; never a typed digit
-  uint32_t chordSentEpoch_ = 0;  // connection the chord was last announced to the phone on
-  bool hidReadyAnnounced_ = false;
-  bool phoneWasLocked_ = true;
-  int subScreenPartials_ = 0;    // partial refreshes since the last full one on the unlock/chord screens
-  uint16_t patternVisited_ = 0;  // dots already sent during this touch; cleared on release, never drawn
+  uint16_t patternVisited_ = 0;  // dots sent during this touch; cleared on release, never drawn
+  bool bondsForgotten_ = false;
+
+  // Drawing state.
+  std::string drawnBand_;
+  bool forceFull_ = true;
+  bool statusShown_ = false;
+  int subScreenPartials_ = 0;  // partial refreshes since the last full one on the non-chat screens
 };
 #endif

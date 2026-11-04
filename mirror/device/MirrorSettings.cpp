@@ -28,6 +28,14 @@ void setKeyboardEnabled(bool on) {
   if (n.ok) nvs_set_u8(n.h, "kbd", on ? 1 : 0), nvs_commit(n.h);
 }
 
+bool securityEpochCurrent(uint8_t epoch) {
+  Nvs n(NVS_READWRITE);
+  uint8_t stored = 0;
+  const bool current = n.ok && nvs_get_u8(n.h, "sec_epoch", &stored) == ESP_OK && stored == epoch;
+  if (n.ok && !current) nvs_set_u8(n.h, "sec_epoch", epoch), nvs_commit(n.h);
+  return current;
+}
+
 Chord chord() {
   Nvs n(NVS_READONLY);
   Chord c = kDefaultChord;

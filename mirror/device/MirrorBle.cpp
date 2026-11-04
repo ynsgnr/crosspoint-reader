@@ -6,14 +6,13 @@
 #include <esp_heap_caps.h>
 #include <esp_random.h>
 #include <host/ble_hs.h>
-#include <nvs.h>
 
 #include <algorithm>
 
+#include "device/MirrorSettings.h"
 #include "protocol_gen.h"
 
-// Private to NimBLE's GATT server (ble_gatt_priv.h): permissions of every Client Characteristic Configuration
-// descriptor, i.e. who may subscribe to notifications. The default is open.
+// NimBLE-private (ble_gatt_priv.h): permissions of every notification subscription (CCCD). The default is open.
 extern "C" void ble_gatts_set_clt_cfg_perm_flags(uint8_t flags);
 
 namespace mirror {
@@ -25,17 +24,6 @@ constexpr uint8_t kCccdFlags = BLE_ATT_F_READ | BLE_ATT_F_WRITE | BLE_ATT_F_READ
                                BLE_ATT_F_READ_AUTHEN | BLE_ATT_F_WRITE_AUTHEN;
 
 bool linkSecure(const NimBLEConnInfo& link) { return link.isEncrypted() && link.isAuthenticated(); }
-
-// True when the stored epoch is current; otherwise records it and returns false.
-bool securityEpochCurrent() {
-  nvs_handle_t h;
-  if (nvs_open("mirror", NVS_READWRITE, &h) != ESP_OK) return false;
-  uint8_t stored = 0;
-  const bool current = nvs_get_u8(h, "sec_epoch", &stored) == ESP_OK && stored == kSecurityEpoch;
-  if (!current) nvs_set_u8(h, "sec_epoch", kSecurityEpoch), nvs_commit(h);
-  nvs_close(h);
-  return current;
-}
 
 // Unmeasured estimate of the block the NimBLE host needs; tighten after measuring on hardware.
 constexpr size_t kMinLargestBlock = 24 * 1024;
@@ -74,6 +62,19 @@ class DataCallbacks final : public NimBLECharacteristicCallbacks {
 ServerCallbacks* serverCallbacks = nullptr;
 DataCallbacks* dataCallbacks = nullptr;
 
+// Bonding + MITM + LE Secure Connections only (legacy pairing is refused). Display-only IO: the phone types the passkey
+// shown on screen, so a Just Works bond cannot be made. Private address: the device cannot be tracked.
+void configureSecurity() {
+  NimBLEDevice::setSecurityAuth(true, true, true);
+  ble_hs_cfg.sm_sc_only = 1;
+  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
+  NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+  NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
+  NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_RANDOM_DEFAULT);
+  ble_gatts_set_clt_cfg_perm_flags(kCccdFlags);  // subscribing needs the same authenticated link as reading
+  if (!settings::securityEpochCurrent(kSecurityEpoch)) NimBLEDevice::deleteAllBonds();  // old model: pair again
+}
+
 }  // namespace
 
 MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vector<uint8_t>& capabilities,
@@ -86,19 +87,7 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   }
   if (!NimBLEDevice::init(deviceName)) return StartResult::Failed;
   NimBLEDevice::setMTU(gen::kRequestedMtu);
-  // Bonding + MITM + LE Secure Connections, and nothing weaker: legacy pairing is refused outright.
-  // Display-only IO: the phone types the passkey shown on screen, so a Just Works bond cannot be made.
-  NimBLEDevice::setSecurityAuth(true, true, true);
-  ble_hs_cfg.sm_sc_only = 1;
-  NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
-  NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-  NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-  // Resolvable private address (the IRK goes to the bonded phone), so the device cannot be tracked by its address.
-  NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_RANDOM_DEFAULT);
-  // Subscribing to notifications needs the same authenticated link as reading or writing.
-  ble_gatts_set_clt_cfg_perm_flags(kCccdFlags);
-  // Bonds from before this security model are not trusted: forget them so the phone pairs again.
-  if (!securityEpochCurrent()) NimBLEDevice::deleteAllBonds();
+  configureSecurity();
 
   if (!serverCallbacks) serverCallbacks = new ServerCallbacks(*this);
   if (!dataCallbacks) dataCallbacks = new DataCallbacks(*this);
@@ -110,7 +99,6 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   NimBLECharacteristic* data = svc->createCharacteristic(
       gen::kUuidData, NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC | NIMBLE_PROPERTY::WRITE_AUTHEN, 512);
   data->setCallbacks(dataCallbacks);
-  // The subscription itself (CCCD) is authenticated through ble_gatts_set_clt_cfg_perm_flags above.
   eventChar_ = svc->createCharacteristic(gen::kUuidEvent, NIMBLE_PROPERTY::NOTIFY, 512);
   NimBLECharacteristic* caps = svc->createCharacteristic(
       gen::kUuidCaps, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN, 512);
