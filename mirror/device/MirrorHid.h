@@ -1,12 +1,13 @@
 #pragma once
 #if defined(CROSSPOINT_MIRROR)
-// BLE HID-over-GATT keyboard (HID service, battery, device information) next to the mirror service. Built by hand rather
-// than with NimBLEHIDDevice because that helper leaves its characteristics readable without encryption; here every
-// characteristic needs the same authenticated link as the mirror. Keeps no input history: each key is sent and released.
+// BLE HID-over-GATT keyboard (HID service, battery, device information) next to the mirror service. Built by hand
+// rather than with NimBLEHIDDevice because that helper leaves its characteristics readable without encryption; here
+// every characteristic needs the same authenticated link as the mirror. Keeps no input history: each key is sent and
+// released.
+#include <NimBLEDevice.h>
+
 #include <atomic>
 #include <cstdint>
-
-#include <NimBLEDevice.h>
 
 namespace mirror {
 

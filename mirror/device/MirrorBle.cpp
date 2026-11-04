@@ -12,8 +12,8 @@
 
 #include "protocol_gen.h"
 
-// Private to NimBLE's GATT server (ble_gatt_priv.h): permissions of every Client Characteristic Configuration descriptor,
-// i.e. who may subscribe to notifications. The default is open.
+// Private to NimBLE's GATT server (ble_gatt_priv.h): permissions of every Client Characteristic Configuration
+// descriptor, i.e. who may subscribe to notifications. The default is open.
 extern "C" void ble_gatts_set_clt_cfg_perm_flags(uint8_t flags);
 
 namespace mirror {
@@ -77,7 +77,7 @@ DataCallbacks* dataCallbacks = nullptr;
 }  // namespace
 
 MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vector<uint8_t>& capabilities,
-                                       bool keyboard) {
+                                        bool keyboard) {
   if (running_) return StartResult::Ok;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < kMinLargestBlock) {
     LOG_ERR("MIRROR", "not enough heap for BLE: largest block %u",

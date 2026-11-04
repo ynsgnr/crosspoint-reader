@@ -10,7 +10,9 @@ struct Nvs {
   nvs_handle_t h = 0;
   bool ok;
   explicit Nvs(nvs_open_mode_t mode) : ok(nvs_open("mirror", mode, &h) == ESP_OK) {}
-  ~Nvs() { if (ok) nvs_close(h); }
+  ~Nvs() {
+    if (ok) nvs_close(h);
+  }
 };
 
 }  // namespace

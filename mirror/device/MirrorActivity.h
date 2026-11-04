@@ -57,7 +57,7 @@ class MirrorActivity final : public Activity {
 
   Screen screen_ = Screen::Status;
   Screen drawnScreen_ = Screen::Status;
-  bool keyboardOn_ = false;      // opt-in, persisted
+  bool keyboardOn_ = false;  // opt-in, persisted
   mirror::Chord chord_ = mirror::kDefaultChord;
   mirror::Chord editChord_ = mirror::kDefaultChord;
   int cursor_ = 0;               // selected key (unlock) or row (chord settings)

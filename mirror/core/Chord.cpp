@@ -13,7 +13,9 @@ char keyChar(uint8_t key) {
   return '0';
 }
 
-int modCount(uint8_t m) { return ((m & kModCtrl) != 0) + ((m & kModShift) != 0) + ((m & kModAlt) != 0) + ((m & kModMeta) != 0); }
+int modCount(uint8_t m) {
+  return ((m & kModCtrl) != 0) + ((m & kModShift) != 0) + ((m & kModAlt) != 0) + ((m & kModMeta) != 0);
+}
 
 // Two-modifier shortcuts that browsers, terminals and Android itself commonly use. Three modifiers are free.
 bool commonShortcut(uint8_t mods, uint8_t key) {
@@ -36,11 +38,16 @@ ChordCheck checkChord(const Chord& c) {
 
 const char* chordCheckText(ChordCheck c) {
   switch (c) {
-    case ChordCheck::Ok: return "";
-    case ChordCheck::TooFewModifiers: return "Use at least two modifiers";
-    case ChordCheck::MetaReserved: return "Meta is reserved by Android";
-    case ChordCheck::KeyNotAllowed: return "Use a letter or digit";
-    case ChordCheck::CommonShortcut: return "Common shortcut: pick another";
+    case ChordCheck::Ok:
+      return "";
+    case ChordCheck::TooFewModifiers:
+      return "Use at least two modifiers";
+    case ChordCheck::MetaReserved:
+      return "Meta is reserved by Android";
+    case ChordCheck::KeyNotAllowed:
+      return "Use a letter or digit";
+    case ChordCheck::CommonShortcut:
+      return "Common shortcut: pick another";
   }
   return "";
 }

@@ -3,12 +3,12 @@
 // GATT peripheral (NimBLE-Arduino), up only between start() and stop(). NimBLE callbacks run on its host task and
 // only copy bytes into a guarded buffer or set flags; everything else happens on the activity's loop().
 // Security: LE Secure Connections only, MITM (passkey shown on screen), every characteristic and every notification
-// subscription needs an encrypted + authenticated link, a resolvable private address, and only a bonded phone may connect
-// unless the user opened the pairing window.
+// subscription needs an encrypted + authenticated link, a resolvable private address, and only a bonded phone may
+// connect unless the user opened the pairing window.
 #include <atomic>
 #include <cstdint>
-#include <mutex>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "device/MirrorHid.h"

@@ -87,8 +87,7 @@ void Session::handleControl(const Envelope& e, bool& changed) {
 std::string Session::phoneDump() const {
   if (!phone_) return "-";
   return "dark=" + std::string(phone_->dark_mode ? "1" : "0") + " minutes=" + std::to_string(phone_->minutes_left) +
-         " locked=" + (phone_->locked ? "1" : "0") +
-         " kbd=" + (phone_->keyboard_allowed ? "1" : "0");
+         " locked=" + (phone_->locked ? "1" : "0") + " kbd=" + (phone_->keyboard_allowed ? "1" : "0");
 }
 
 void Session::sendCommand(uint8_t command, uint8_t arg, uint8_t arg2) {

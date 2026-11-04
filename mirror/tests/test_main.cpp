@@ -6,8 +6,8 @@
 #include <sstream>
 
 #include "core/BandedGfx.h"
-#include "core/Crc16.h"
 #include "core/Chord.h"
+#include "core/Crc16.h"
 #include "core/Envelope.h"
 #include "core/Frame.h"
 #include "core/RefreshPolicy.h"
@@ -401,13 +401,13 @@ static void testControlChannel() {
 static void testChordRules() {
   using namespace mirror;
   CHECK(chordLabel(kDefaultChord) == "Ctrl+Alt+Shift+M" && checkChord(kDefaultChord) == ChordCheck::Ok);
-  CHECK(checkChord({0, 0x10}) == ChordCheck::TooFewModifiers);            // never a bare key
-  CHECK(checkChord({kModCtrl, 0x10}) == ChordCheck::TooFewModifiers);     // nor one modifier
+  CHECK(checkChord({0, 0x10}) == ChordCheck::TooFewModifiers);         // never a bare key
+  CHECK(checkChord({kModCtrl, 0x10}) == ChordCheck::TooFewModifiers);  // nor one modifier
   CHECK(checkChord({kModCtrl | kModMeta, 0x10}) == ChordCheck::MetaReserved);
   CHECK(checkChord({kModCtrl | kModAlt | kModShift, 0x28}) == ChordCheck::KeyNotAllowed);  // Enter
-  CHECK(checkChord({kModCtrl | kModShift, 0x17}) == ChordCheck::CommonShortcut);          // Ctrl+Shift+T
-  CHECK(checkChord({kModCtrl | kModAlt, 0x17}) == ChordCheck::CommonShortcut);            // Ctrl+Alt+T
-  CHECK(checkChord({kModCtrl | kModAlt, 0x10}) == ChordCheck::Ok);                        // Ctrl+Alt+M
+  CHECK(checkChord({kModCtrl | kModShift, 0x17}) == ChordCheck::CommonShortcut);           // Ctrl+Shift+T
+  CHECK(checkChord({kModCtrl | kModAlt, 0x17}) == ChordCheck::CommonShortcut);             // Ctrl+Alt+T
+  CHECK(checkChord({kModCtrl | kModAlt, 0x10}) == ChordCheck::Ok);                         // Ctrl+Alt+M
   CHECK(nextChordKey(0x1D, 1) == 0x1E && nextChordKey(0x27, 1) == 0x04 && nextChordKey(0x04, -1) == 0x27);
   CHECK(digitUsage(1) == 0x1E && digitUsage(9) == 0x26 && digitUsage(0) == 0x27);
 }

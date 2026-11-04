@@ -12,19 +12,126 @@ constexpr uint8_t kReportKeyboard = 1, kReportConsumer = 2, kReportSystem = 3;
 // Keyboard (report 1: modifiers, reserved, 6 keys in; LEDs out), consumer control (report 2: one 16-bit usage),
 // system control (report 3: power, sleep, wake bits).
 const uint8_t kReportMap[] = {
-    0x05, 0x01, 0x09, 0x06, 0xA1, 0x01, 0x85, kReportKeyboard,
-    0x05, 0x07, 0x19, 0xE0, 0x29, 0xE7, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02,
-    0x95, 0x01, 0x75, 0x08, 0x81, 0x01,
-    0x95, 0x05, 0x75, 0x01, 0x05, 0x08, 0x19, 0x01, 0x29, 0x05, 0x91, 0x02,
-    0x95, 0x01, 0x75, 0x03, 0x91, 0x01,
-    0x95, 0x06, 0x75, 0x08, 0x15, 0x00, 0x25, 0x65, 0x05, 0x07, 0x19, 0x00, 0x29, 0x65, 0x81, 0x00,
+    0x05,
+    0x01,
+    0x09,
+    0x06,
+    0xA1,
+    0x01,
+    0x85,
+    kReportKeyboard,
+    0x05,
+    0x07,
+    0x19,
+    0xE0,
+    0x29,
+    0xE7,
+    0x15,
+    0x00,
+    0x25,
+    0x01,
+    0x75,
+    0x01,
+    0x95,
+    0x08,
+    0x81,
+    0x02,
+    0x95,
+    0x01,
+    0x75,
+    0x08,
+    0x81,
+    0x01,
+    0x95,
+    0x05,
+    0x75,
+    0x01,
+    0x05,
+    0x08,
+    0x19,
+    0x01,
+    0x29,
+    0x05,
+    0x91,
+    0x02,
+    0x95,
+    0x01,
+    0x75,
+    0x03,
+    0x91,
+    0x01,
+    0x95,
+    0x06,
+    0x75,
+    0x08,
+    0x15,
+    0x00,
+    0x25,
+    0x65,
+    0x05,
+    0x07,
+    0x19,
+    0x00,
+    0x29,
+    0x65,
+    0x81,
+    0x00,
     0xC0,
-    0x05, 0x0C, 0x09, 0x01, 0xA1, 0x01, 0x85, kReportConsumer,
-    0x15, 0x00, 0x26, 0xFF, 0x03, 0x19, 0x00, 0x2A, 0xFF, 0x03, 0x75, 0x10, 0x95, 0x01, 0x81, 0x00,
+    0x05,
+    0x0C,
+    0x09,
+    0x01,
+    0xA1,
+    0x01,
+    0x85,
+    kReportConsumer,
+    0x15,
+    0x00,
+    0x26,
+    0xFF,
+    0x03,
+    0x19,
+    0x00,
+    0x2A,
+    0xFF,
+    0x03,
+    0x75,
+    0x10,
+    0x95,
+    0x01,
+    0x81,
+    0x00,
     0xC0,
-    0x05, 0x01, 0x09, 0x80, 0xA1, 0x01, 0x85, kReportSystem,
-    0x15, 0x00, 0x25, 0x01, 0x09, 0x81, 0x09, 0x82, 0x09, 0x83, 0x75, 0x01, 0x95, 0x03, 0x81, 0x06,
-    0x75, 0x05, 0x95, 0x01, 0x81, 0x03,
+    0x05,
+    0x01,
+    0x09,
+    0x80,
+    0xA1,
+    0x01,
+    0x85,
+    kReportSystem,
+    0x15,
+    0x00,
+    0x25,
+    0x01,
+    0x09,
+    0x81,
+    0x09,
+    0x82,
+    0x09,
+    0x83,
+    0x75,
+    0x01,
+    0x95,
+    0x03,
+    0x81,
+    0x06,
+    0x75,
+    0x05,
+    0x95,
+    0x01,
+    0x81,
+    0x03,
     0xC0,
 };
 
@@ -49,11 +156,13 @@ void MirrorHid::create(NimBLEServer* server) {
 
   NimBLEService* hid = server->createService(NimBLEUUID(kUuidHidService));
   const uint8_t hidInfo[] = {0x11, 0x01, 0x00, 0x02};  // HID 1.11, no country, normally connectable
-  hid->createCharacteristic(NimBLEUUID(static_cast<uint16_t>(0x2A4A)), kRead, sizeof hidInfo)->setValue(hidInfo, sizeof hidInfo);
+  hid->createCharacteristic(NimBLEUUID(static_cast<uint16_t>(0x2A4A)), kRead, sizeof hidInfo)
+      ->setValue(hidInfo, sizeof hidInfo);
   hid->createCharacteristic(NimBLEUUID(static_cast<uint16_t>(0x2A4B)), kRead, sizeof kReportMap)
       ->setValue(kReportMap, sizeof kReportMap);
   hid->createCharacteristic(NimBLEUUID(static_cast<uint16_t>(0x2A4C)), kWriteNr, 1);  // control point (suspend/resume)
-  NimBLECharacteristic* mode = hid->createCharacteristic(NimBLEUUID(static_cast<uint16_t>(0x2A4E)), kRead | kWriteNr, 1);
+  NimBLECharacteristic* mode =
+      hid->createCharacteristic(NimBLEUUID(static_cast<uint16_t>(0x2A4E)), kRead | kWriteNr, 1);
   const uint8_t reportProtocol = 1;
   mode->setValue(&reportProtocol, 1);
 
@@ -61,8 +170,10 @@ void MirrorHid::create(NimBLEServer* server) {
   keyboardIn_->setCallbacks(&subscription_);
   addReport(hid, kReportConsumer, 1, kRead | NIMBLE_PROPERTY::NOTIFY, 2);
   systemIn_ = addReport(hid, kReportSystem, 1, kRead | NIMBLE_PROPERTY::NOTIFY, 1);
-  addReport(hid, kReportKeyboard, 2, kRead | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC |
-                                         NIMBLE_PROPERTY::WRITE_AUTHEN, 1);  // keyboard LEDs: accepted and ignored
+  addReport(hid, kReportKeyboard, 2,
+            kRead | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC |
+                NIMBLE_PROPERTY::WRITE_AUTHEN,
+            1);  // keyboard LEDs: accepted and ignored
 
   NimBLEService* battery = server->createService(NimBLEUUID(kUuidBatteryService));
   const uint8_t level = 100;  // a fixed value; the e-ink device's battery is not this service's business
@@ -87,7 +198,7 @@ bool MirrorHid::tap(uint16_t connHandle, uint8_t mods, uint8_t usage) {
 
 bool MirrorHid::wake(uint16_t connHandle) {
   if (!ready()) return false;
-  const bool shift = tap(connHandle, 0x02, 0);  // modifier only: a plain "any key" event
+  const bool shift = tap(connHandle, 0x02, 0);     // modifier only: a plain "any key" event
   const bool down = sendSystem(connHandle, 0x04);  // bit 2 = System Wake Up
   vTaskDelay(pdMS_TO_TICKS(15));
   const bool up = sendSystem(connHandle, 0);

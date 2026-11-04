@@ -112,9 +112,15 @@ void MirrorActivity::loop() {
   }
 
   switch (screen_) {
-    case Screen::Unlock: redraw |= loopUnlock(); break;
-    case Screen::ChordSettings: redraw |= loopChordSettings(); break;
-    case Screen::Status: redraw |= loopStatus(); break;
+    case Screen::Unlock:
+      redraw |= loopUnlock();
+      break;
+    case Screen::ChordSettings:
+      redraw |= loopChordSettings();
+      break;
+    case Screen::Status:
+      redraw |= loopStatus();
+      break;
   }
   if (redraw) requestUpdate();
 }
@@ -216,9 +222,12 @@ bool MirrorActivity::loopUnlock() {
     // Each key goes out immediately and is forgotten: no PIN, no digit count, no buffer.
     bool sent = false;
     if (phoneAllowsKeyboard()) {
-      if (press == 9) sent = ble_.wakePhone();
-      else if (press == 11) sent = ble_.typeKey(0, 0x28);  // Enter
-      else sent = ble_.typeKey(0, mirror::digitUsage(press == 10 ? 0 : press + 1));
+      if (press == 9)
+        sent = ble_.wakePhone();
+      else if (press == 11)
+        sent = ble_.typeKey(0, 0x28);  // Enter
+      else
+        sent = ble_.typeKey(0, mirror::digitUsage(press == 10 ? 0 : press + 1));
     }
     note_ = sent ? "" : phoneAllowsKeyboard() ? "Keyboard not ready" : "Keyboard is off in the app";
     redraw = true;  // the pressed key is highlighted
@@ -247,10 +256,14 @@ bool MirrorActivity::loopChordSettings() {
   }
   if (mappedInput.wasReleased(Btn::Confirm)) {
     redraw = true;
-    if (cursor_ == 0) editChord_.mods ^= mirror::kModCtrl;
-    else if (cursor_ == 1) editChord_.mods ^= mirror::kModAlt;
-    else if (cursor_ == 2) editChord_.mods ^= mirror::kModShift;
-    else if (cursor_ == 3) editChord_.key = mirror::nextChordKey(editChord_.key, 1);
+    if (cursor_ == 0)
+      editChord_.mods ^= mirror::kModCtrl;
+    else if (cursor_ == 1)
+      editChord_.mods ^= mirror::kModAlt;
+    else if (cursor_ == 2)
+      editChord_.mods ^= mirror::kModShift;
+    else if (cursor_ == 3)
+      editChord_.key = mirror::nextChordKey(editChord_.key, 1);
     else if (mirror::checkChord(editChord_) == mirror::ChordCheck::Ok) {
       chord_ = editChord_;
       mirror::settings::setChord(chord_);
@@ -326,14 +339,17 @@ void MirrorActivity::drawUnlock() {
   renderer.drawCenteredText(UI_10_FONT_ID, y, "Unlock phone", true, EpdFontFamily::BOLD);
   y += lh;
   const auto& phone = session_->phoneStatus();
-  renderer.drawCenteredText(UI_10_FONT_ID, y, !phone ? "Phone state unknown" : phone->locked ? "Phone is locked" : "Phone is unlocked");
+  renderer.drawCenteredText(UI_10_FONT_ID, y,
+                            !phone          ? "Phone state unknown"
+                            : phone->locked ? "Phone is locked"
+                                            : "Phone is unlocked");
   for (int i = 0; i < 12; ++i) {
     const Cell c = unlockCell(i, renderer.getScreenWidth(), renderer.getScreenHeight());
     renderer.drawRect(c.x, c.y, c.w, c.h, i == cursor_ ? 4 : 1, true);
     const char* label = kUnlockLabels[i];
     const int tw = renderer.getTextWidth(UI_10_FONT_ID, label);
-    renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2, label,
-                      true, i == cursor_ ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+    renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
+                      label, true, i == cursor_ ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   }
   y = renderer.getScreenHeight() - 2 * lh;
   if (!note_.empty()) renderer.drawCenteredText(UI_10_FONT_ID, y - lh, note_.c_str());
@@ -354,20 +370,22 @@ void MirrorActivity::drawChordSettings() {
   const std::string rows[5] = {std::string("Ctrl: ") + ((editChord_.mods & mirror::kModCtrl) ? "on" : "off"),
                                std::string("Alt: ") + ((editChord_.mods & mirror::kModAlt) ? "on" : "off"),
                                std::string("Shift: ") + ((editChord_.mods & mirror::kModShift) ? "on" : "off"),
-                               std::string("Key: ") + mirror::chordLabel({0, editChord_.key}),
-                               "Save"};
+                               std::string("Key: ") + mirror::chordLabel({0, editChord_.key}), "Save"};
   for (int i = 0; i < 5; ++i) line((i == cursor_ ? "> " : "  ") + rows[i], i == cursor_);
   y += lh / 2;
   const mirror::ChordCheck check = mirror::checkChord(editChord_);
-  line(check == mirror::ChordCheck::Ok ? "Sent when you press Confirm on the linked screen" : mirror::chordCheckText(check));
+  line(check == mirror::ChordCheck::Ok ? "Sent when you press Confirm on the linked screen"
+                                       : mirror::chordCheckText(check));
   y = renderer.getScreenHeight() - 2 * lh;
   line("Up/Down: row  Confirm: change  Back: discard");
 }
 
 mirror::RefreshKind MirrorActivity::drawFrame() {
   if (screen_ != Screen::Status) {
-    if (screen_ == Screen::Unlock) drawUnlock();
-    else drawChordSettings();
+    if (screen_ == Screen::Unlock)
+      drawUnlock();
+    else
+      drawChordSettings();
     const bool first = drawnScreen_ != screen_;
     drawnScreen_ = screen_;
     statusShown_ = false;

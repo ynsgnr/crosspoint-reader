@@ -22,7 +22,7 @@ enum class ChordCheck { Ok, TooFewModifiers, MetaReserved, KeyNotAllowed, Common
 ChordCheck checkChord(const Chord& c);
 const char* chordCheckText(ChordCheck c);
 
-std::string chordLabel(const Chord& c);  // "Ctrl+Alt+Shift+M"
+std::string chordLabel(const Chord& c);       // "Ctrl+Alt+Shift+M"
 uint8_t nextChordKey(uint8_t key, int step);  // cycles A-Z then 1-0
 
 // HID usage for a digit 0-9 on the main row.
