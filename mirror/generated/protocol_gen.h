@@ -13,7 +13,7 @@
 
 namespace mirror::gen {
 
-inline constexpr uint8_t kProtocolVersion = 2;
+inline constexpr uint8_t kProtocolVersion = 3;
 inline constexpr uint32_t kMagic = 167;
 inline constexpr uint32_t kHeaderSize = 11;
 inline constexpr uint32_t kCrcSize = 2;
@@ -34,7 +34,10 @@ inline constexpr uint8_t kErrSchemaMismatch = 3;
 inline constexpr uint8_t kErrTooLarge = 4;
 inline constexpr uint8_t kErrBadPayload = 5;
 inline constexpr uint8_t kCmdToggleDarkMode = 1;
+inline constexpr uint8_t kCmdUnlockRequest = 2;
+inline constexpr uint8_t kCmdHidStatus = 3;
 inline constexpr uint8_t kFeaturePhoneStatus = 1;
+inline constexpr uint8_t kFeatureHidKeyboard = 2;
 inline constexpr const char* kUuidService = "6d1a0001-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidData = "6d1a0002-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidEvent = "6d1a0003-7e1c-4f3b-9a53-5c0b2d9a11e0";
@@ -159,14 +162,17 @@ struct ControlEvent {
 struct PhoneStatus {
   bool dark_mode = false;
   uint16_t minutes_left = 0;
+  bool locked = false;
 
   void encode(Writer& w) const {
     w.writeBool(dark_mode);
     w.writeU16(minutes_left);
+    w.writeBool(locked);
   }
   static bool decode(Reader& r, PhoneStatus& out) {
     out.dark_mode = r.readBool();
     out.minutes_left = r.readU16();
+    out.locked = r.readBool();
     return r.ok();
   }
   bool operator==(const PhoneStatus&) const = default;
@@ -174,12 +180,15 @@ struct PhoneStatus {
 
 struct ControlCommand {
   uint8_t command = 0;
+  uint8_t arg = 0;
 
   void encode(Writer& w) const {
     w.writeU8(command);
+    w.writeU8(arg);
   }
   static bool decode(Reader& r, ControlCommand& out) {
     out.command = r.readU8();
+    out.arg = r.readU8();
     return r.ok();
   }
   bool operator==(const ControlCommand&) const = default;

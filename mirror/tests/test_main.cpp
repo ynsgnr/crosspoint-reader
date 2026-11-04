@@ -378,18 +378,23 @@ static void testControlChannel() {
   Device d;
   CHECK(!d.session.phoneStatus() && d.session.phoneDump() == "-");
   Writer w;
-  gen::PhoneStatus{true, 25}.encode(w);
+  gen::PhoneStatus{true, 25, true}.encode(w);
   d.send(gen::kFlagStatus, 1, 0, w.take(), 0, 0);
   CHECK(d.out.empty() && d.session.phoneStatus() && d.session.phoneStatus()->minutes_left == 25);
-  CHECK(d.session.phoneDump() == "dark=1 minutes=25");
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1");
   d.send(gen::kFlagStatus, 2, 0, {0xFF}, 0, 0);  // garbage status is ignored
-  CHECK(d.session.phoneDump() == "dark=1 minutes=25" && d.out.empty());
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1" && d.out.empty());
 
   d.session.sendCommand(gen::kCmdToggleDarkMode);
   CHECK(d.out.size() == 1 && d.out[0].templateId == 0 && d.out[0].has(gen::kFlagCommand));
   Reader r(d.out[0].payload.data(), d.out[0].payload.size());
   gen::ControlCommand c;
-  CHECK(gen::ControlCommand::decode(r, c) && c.command == gen::kCmdToggleDarkMode);
+  CHECK(gen::ControlCommand::decode(r, c) && c.command == gen::kCmdToggleDarkMode && c.arg == 0);
+
+  d.out.clear();
+  d.session.sendCommand(gen::kCmdHidStatus, 2);
+  Reader r2(d.out[0].payload.data(), d.out[0].payload.size());
+  CHECK(d.out.size() == 1 && gen::ControlCommand::decode(r2, c) && c.command == gen::kCmdHidStatus && c.arg == 2);
 }
 
 static void testBandedGfxLeavesTheTopBandFree() {

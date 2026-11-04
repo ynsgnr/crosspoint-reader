@@ -86,12 +86,13 @@ void Session::handleControl(const Envelope& e, bool& changed) {
 
 std::string Session::phoneDump() const {
   if (!phone_) return "-";
-  return "dark=" + std::string(phone_->dark_mode ? "1" : "0") + " minutes=" + std::to_string(phone_->minutes_left);
+  return "dark=" + std::string(phone_->dark_mode ? "1" : "0") + " minutes=" + std::to_string(phone_->minutes_left) +
+         " locked=" + (phone_->locked ? "1" : "0");
 }
 
-void Session::sendCommand(uint8_t command) {
+void Session::sendCommand(uint8_t command, uint8_t arg) {
   Writer w;
-  gen::ControlCommand{command}.encode(w);
+  gen::ControlCommand{command, arg}.encode(w);
   emit(static_cast<uint8_t>(gen::kControlTemplateId), 0, gen::kFlagCommand, 0, w.bytes());
 }
 

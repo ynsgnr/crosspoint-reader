@@ -38,7 +38,7 @@ class Session {
   std::string phoneDump() const;  // golden-file form: "dark=1 minutes=30" or "-"
 
   // Asks the phone to do something (gen::kCmd*). Only valid while connected.
-  void sendCommand(uint8_t command);
+  void sendCommand(uint8_t command, uint8_t arg = 0);
 
   // One-shot flags; either one means the next frame should be a full refresh.
   bool takeTemplateSwitched() {

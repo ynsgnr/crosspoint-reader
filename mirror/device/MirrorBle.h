@@ -2,6 +2,9 @@
 #if defined(CROSSPOINT_MIRROR)
 // GATT peripheral (NimBLE-Arduino), up only between start() and stop(). NimBLE callbacks run on its host task and
 // only copy bytes into a guarded buffer or set flags; everything else happens on the activity's loop().
+// Security: LE Secure Connections only, MITM (passkey shown on screen), every characteristic and every notification
+// subscription needs an encrypted + authenticated link, a resolvable private address, and only a bonded phone may connect
+// unless the user opened the pairing window.
 #include <atomic>
 #include <cstdint>
 #include <mutex>
@@ -9,6 +12,7 @@
 
 class NimBLEServer;
 class NimBLECharacteristic;
+class NimBLEConnInfo;
 
 namespace mirror {
 
@@ -21,6 +25,7 @@ class MirrorBle {
   void stop();  // stops advertising, disconnects, deinitialises the stack
   bool running() const { return running_; }
 
+  // True once the link is encrypted and authenticated; nothing is sent or accepted before that.
   bool connected() const { return connected_.load(); }
   // Changes on every new connection, so a disconnect and reconnect between two loop passes is still noticed.
   uint32_t connectionEpoch() const { return epoch_.load(); }
@@ -36,16 +41,25 @@ class MirrorBle {
   int bondCount() const;
   void forgetBonds();
 
+  // Explicit "Pair phone": unbonded phones may connect and pair for `durationMs`. Bonded phones always may.
+  void openPairing(uint32_t durationMs);
+  bool pairingOpen() const;
+  // Starts or stops advertising as needed (open window or a bond exists, and not connected). Call from loop().
+  void service();
+
   // NimBLE callbacks (public for the callback classes in the .cpp).
-  void onWrite(const uint8_t* data, size_t len);
-  void onConnected(uint16_t handle);
+  void onWrite(const uint8_t* data, size_t len, const NimBLEConnInfo& link);
+  void onConnected(const NimBLEConnInfo& link);
   void onDisconnected();
   void onMtu(uint16_t mtu);
   uint32_t onPasskeyDisplay();
-  void onAuthComplete(bool authenticated, uint16_t handle);
+  void onAuthComplete(const NimBLEConnInfo& link);
 
  private:
+  void dropOtherBonds(const NimBLEConnInfo& keep);
+
   bool running_ = false;
+  std::atomic<uint32_t> pairingUntilMs_{0};
   std::atomic<bool> connected_{false};
   std::atomic<uint32_t> epoch_{0};
   std::atomic<bool> statusChanged_{false};

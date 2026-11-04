@@ -8,7 +8,8 @@
 #include "fontIds.h"
 
 namespace {
-constexpr char kDeviceName[] = "CrossPoint Mirror";
+constexpr char kDeviceName[] = "E-Ink Reader";  // generic on purpose: the advertisement identifies nothing
+constexpr uint32_t kPairingWindowMs = 120000;
 }  // namespace
 
 void MirrorActivity::resetSession() {
@@ -52,10 +53,15 @@ void MirrorActivity::loop() {
   if (mappedInput.wasReleased(Btn::Back)) return finish();
   if (startup_ != Startup::Ok) return;
 
+  ble_.service();
   bool redraw = ble_.takeStatusChanged();
   if (!ble_.connected() && mappedInput.wasLongPressed(Btn::Confirm, 1500)) {
     ble_.forgetBonds();
     bondsForgotten_ = true;
+    redraw = true;
+  } else if (!ble_.connected() && mappedInput.wasReleased(Btn::Confirm) && !ble_.pairingOpen()) {
+    bondsForgotten_ = false;
+    ble_.openPairing(kPairingWindowMs);  // "Pair phone": the only way an unknown phone can connect
     redraw = true;
   }
   if (ble_.connected() != wasConnected_ || ble_.connectionEpoch() != seenEpoch_) {
@@ -112,15 +118,15 @@ void MirrorActivity::drawStatus() {
         y += lh / 2;
         line("Confirm: phone dark mode on/off");
       } else {
-        line("Waiting for your phone");
-        line(std::string("Name: ") + kDeviceName);
         const int bonds = ble_.bondCount();
-        line(bonds ? std::to_string(bonds) + " paired" : "No phone paired yet");
+        line(ble_.pairingOpen() ? "Pairing: open on your phone" : bonds ? "Waiting for your phone" : "No phone paired");
+        line(std::string("Name: ") + kDeviceName);
         y += lh / 2;
+        if (!ble_.pairingOpen()) line("Confirm: pair phone");
         if (bondsForgotten_)
-          line("Paired phones forgotten.");
+          line("Paired phone forgotten.");
         else if (bonds)
-          line("Hold Confirm: forget phones");
+          line("Hold Confirm: forget phone");
       }
       break;
     }
