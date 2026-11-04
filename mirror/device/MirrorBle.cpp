@@ -63,14 +63,14 @@ ServerCallbacks* serverCallbacks = nullptr;
 DataCallbacks* dataCallbacks = nullptr;
 
 // Bonding + MITM + LE Secure Connections only (legacy pairing is refused). Display-only IO: the phone types the passkey
-// shown on screen, so a Just Works bond cannot be made. Private address: the device cannot be tracked.
+// shown on screen, so a Just Works bond cannot be made. The public address is used: on this controller advertising
+// with the host-based private address fails (HCI error 0x12, seen on hardware), so the device is not untraceable.
 void configureSecurity() {
   NimBLEDevice::setSecurityAuth(true, true, true);
   ble_hs_cfg.sm_sc_only = 1;
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_DISPLAY_ONLY);
   NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
   NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
-  if (!NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_RPA_RANDOM_DEFAULT)) LOG_ERR("MIRROR", "private address unavailable");
   ble_gatts_set_clt_cfg_perm_flags(kCccdFlags);  // subscribing needs the same authenticated link as reading
   if (!settings::securityEpochCurrent(kSecurityEpoch)) NimBLEDevice::deleteAllBonds();  // old model: pair again
 }
@@ -82,7 +82,6 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   if (running_) return StartResult::Ok;
   keyboard_ = keyboard;
   minimalAdvertisement_ = false;
-  publicAddress_ = false;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < kMinLargestBlock) {
     LOG_ERR("MIRROR", "not enough heap for BLE: largest block %u",
             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
@@ -126,8 +125,8 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
     adv->addServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));  // the phone's HID host looks for this
     adv->setAppearance(0x03C1);                                      // keyboard
   }
+  adv->enableScanResponse(true);  // before setName: the name goes to the scan response, not the full main packet
   adv->setName(deviceName);
-  adv->enableScanResponse(true);
   {
     std::lock_guard<std::mutex> g(mutex_);
     inbound_.reserve(kInboundCap);  // grown here, not on the NimBLE host task
@@ -185,13 +184,6 @@ void MirrorBle::service() {
       minimalAdvertisement_ = true;
       ok = adv->start();
       LOG_INF("MIRROR", "retry with the minimal advertisement: %s", ok ? "on" : "failed");
-    }
-    if (!ok && !publicAddress_) {
-      // Last resort: the private (rotating) address may be what the controller refuses. Privacy is traded for working.
-      publicAddress_ = true;
-      NimBLEDevice::setOwnAddrType(BLE_OWN_ADDR_PUBLIC);
-      ok = adv->start();
-      LOG_INF("MIRROR", "retry with the public address: %s", ok ? "on" : "failed");
     }
     const int started = ok ? 1 : 0;
     if (started != advertisingState_.load()) LOG_INF("MIRROR", "advertising %s", started ? "on" : "FAILED to start");

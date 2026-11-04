@@ -39,7 +39,7 @@ as one block with a thick bar), a fixed 3-line draft area with cursor. Up/Down (
   so such a link is disconnected (`onAuthComplete`).
 * **Pairing window.** An unknown phone may connect only for 2 minutes after you tap **Pair phone** on the Mirror screen. A bonded phone always may, but cannot re-pair outside the window
   (`onPasskeyDisplay` disconnects). Pairing a new phone deletes the old bond (one phone at a time). Nothing is advertised without a bond or an open window.
-* **Privacy.** Resolvable private address (IRK distributed at bonding); the advertisement holds the mirror service UUID, the HID UUID and appearance when the keyboard is on, and the generic name `E-Ink Reader`.
+* **Privacy.** The public address is used: advertising with the host-based private address failed on the X4 Pro (HCI error 0x12, serial log), so the device can be recognised by its address. It advertises only while the pairing window is open or a bond exists. The advertisement holds the mirror service UUID (plus the HID UUID and appearance when the keyboard is on); the generic name `E-Ink Reader` is in the scan response.
   No content, serial or per-device data. (The mirror service UUID is a project constant; the Companion Device Manager filters on it.)
 * **Migration.** `sec_epoch` in NVS (`kSecurityEpoch`); bonds made under an older model are deleted at the next start. The app does the same (`DeviceBond.SECURITY_EPOCH`).
 

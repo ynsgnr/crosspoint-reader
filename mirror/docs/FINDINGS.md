@@ -40,6 +40,10 @@
 (`CoverGridHomeUi`, the PSRAM-board default) draws a separate fixed tab list. A Home entry therefore touches both. Activities need no
 registration: `activityManager.replaceActivity(...)` starts one. Replace (not push) frees Home's buffers before the BLE stack starts.
 
+## Found on hardware
+* Advertising with `BLE_OWN_ADDR_RPA_RANDOM_DEFAULT` fails on the X4 Pro: `Error enabling advertising; rc=530` (HCI 0x12, invalid parameters). The public address works, so the mirror uses it.
+* The device name did not fit in the main advertising packet (`Data length exceeded`); it now goes in the scan response.
+
 ## Not verified (security, keyboard and chord addendum)
 Everything below is implemented and compiles (both firmware images, host tests, Kotlin tests, APK) but has NOT been run on hardware. Test in this order:
 1. A sniffer (nRF Sniffer) after pairing shows no plaintext; an unbonded central cannot read, write or subscribe, including the HID characteristics and the CCCDs.
