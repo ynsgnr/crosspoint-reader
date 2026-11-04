@@ -35,22 +35,16 @@ void MirrorActivity::onEnter() {
 
 void MirrorActivity::startBle() {
   const uint8_t features = keyboardOn_ ? mirror::gen::kFeatureHidKeyboard : 0;
-  switch (ble_.start(kDeviceName, session_->capabilities(gfx_, kDeviceName, features), keyboardOn_)) {
-    case mirror::MirrorBle::StartResult::Ok:
-      startup_ = Startup::Ok;
-      break;
-    case mirror::MirrorBle::StartResult::NoMemory:
-      startup_ = Startup::NoMemory;
-      break;
-    default:
-      startup_ = Startup::Failed;
-      break;
-  }
+  const auto result = ble_.start(kDeviceName, session_->capabilities(gfx_, kDeviceName, features), keyboardOn_);
+  startup_ = result == mirror::MirrorBle::StartResult::Ok         ? Startup::Ok
+             : result == mirror::MirrorBle::StartResult::NoMemory ? Startup::NoMemory
+                                                                  : Startup::Failed;
 }
 
 void MirrorActivity::setScreen(Screen s) {
   screen_ = s;
   cursor_ = 0;
+  patternVisited_ = 0;
   note_.clear();  // nothing typed is kept when a screen is left
   if (s == Screen::ChordSettings) editChord_ = chord_;
 }
@@ -80,15 +74,7 @@ void MirrorActivity::loop() {
   ble_.service();
   bool redraw = ble_.takeStatusChanged();
   if (ble_.connected() != wasConnected_ || ble_.connectionEpoch() != seenEpoch_) {
-    wasConnected_ = ble_.connected();
-    seenEpoch_ = ble_.connectionEpoch();
-    resetSession();  // every connection starts a new sequence space; a disconnect returns to the waiting screen
-    hidReadyAnnounced_ = false;
-    phoneWasLocked_ = true;
-    if (!wasConnected_ && screen_ == Screen::Unlock) {
-      std::lock_guard<std::mutex> lock(mutex_);
-      setScreen(Screen::Status);
-    }
+    onLinkChanged();
     redraw = true;
   }
 
@@ -99,21 +85,14 @@ void MirrorActivity::loop() {
   if (overflowed) session_->requestResync();
   if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
 
-  // The phone's first status on a connection means its app is up: tell it the chord and the keyboard state.
-  if (ble_.connected() && session_->phoneStatus()) {
-    if (keyboardOn_ && chordSentEpoch_ != seenEpoch_) {
-      chordSentEpoch_ = seenEpoch_;
-      sendChordToPhone();
-    }
-    if (keyboardOn_ && ble_.keyboardReady() != hidReadyAnnounced_) {
-      hidReadyAnnounced_ = ble_.keyboardReady();
-      session_->sendCommand(mirror::gen::kCmdHidStatus, hidReadyAnnounced_ ? 1 : 0);
-    }
-  }
+  announceKeyboardToPhone();
 
   switch (screen_) {
     case Screen::Unlock:
       redraw |= loopUnlock();
+      break;
+    case Screen::Pattern:
+      redraw |= loopPattern();
       break;
     case Screen::ChordSettings:
       redraw |= loopChordSettings();
@@ -123,6 +102,31 @@ void MirrorActivity::loop() {
       break;
   }
   if (redraw) requestUpdate();
+}
+
+// Every connection starts a new sequence space; a disconnect returns to the waiting screen.
+void MirrorActivity::onLinkChanged() {
+  wasConnected_ = ble_.connected();
+  seenEpoch_ = ble_.connectionEpoch();
+  resetSession();
+  hidReadyAnnounced_ = false;
+  phoneWasLocked_ = true;
+  if (wasConnected_ || (screen_ != Screen::Unlock && screen_ != Screen::Pattern)) return;
+  std::lock_guard<std::mutex> lock(mutex_);
+  setScreen(Screen::Status);
+}
+
+// The phone's first status on a connection means its app is up: tell it the chord and the HID state.
+void MirrorActivity::announceKeyboardToPhone() {
+  if (!keyboardOn_ || !ble_.connected() || !session_->phoneStatus()) return;
+  if (chordSentEpoch_ != seenEpoch_) {
+    chordSentEpoch_ = seenEpoch_;
+    sendChordToPhone();
+  }
+  if (ble_.keyboardReady() != hidReadyAnnounced_) {
+    hidReadyAnnounced_ = ble_.keyboardReady();
+    session_->sendCommand(mirror::gen::kCmdHidStatus, hidReadyAnnounced_ ? 1 : 0);
+  }
 }
 
 bool MirrorActivity::phoneAllowsKeyboard() const {
@@ -165,8 +169,7 @@ bool MirrorActivity::loopStatus() {
       }
     }
     if (keyboardOn_ && mappedInput.wasLongPressed(Btn::Left, 1500)) {
-      setScreen(Screen::Unlock);
-      session_->sendCommand(mirror::gen::kCmdUnlockRequest);
+      openUnlock();
       redraw = true;
     }
   }
@@ -182,66 +185,134 @@ bool MirrorActivity::loopStatus() {
 }
 
 namespace {
-constexpr int kUnlockCols = 3, kUnlockRows = 4, kUnlockKeys = 12;
-const char* const kUnlockLabels[kUnlockKeys] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Wake", "0", "Enter"};
+constexpr int kGridCols = 3;
+constexpr uint8_t kEnterUsage = 0x28;
+
+// PIN pad. The phone is woken when the screen opens, so there is no Wake key.
+constexpr int kPinKeys = 12, kPinRows = 4;
+const char* const kPinLabels[kPinKeys] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Pattern", "0", "Enter"};
+enum PinKey { kPinToPattern = 9, kPinZero = 10, kPinEnter = 11 };
+
+// Pattern: dots 0-8 row by row (the Android pattern lock reads them as the digits "0".."8"). Lifting the finger sends
+// Enter; "Done" does the same for boards without touch.
+constexpr int kDots = 9, kPatternKeys = 11, kPatternRows = 4;
+const char* const kPatternLabels[kPatternKeys] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "Done", "PIN"};
+enum PatternKey { kPatternDone = 9, kPatternToPin = 10 };
 
 struct Cell {
   int x, y, w, h;
 };
 
-Cell unlockCell(int i, int screenW, int screenH) {
+Cell gridCell(int i, int rows, int screenW, int screenH) {
   const int top = screenH / 5, gap = 12;
-  const int cellW = (screenW - gap * (kUnlockCols + 1)) / kUnlockCols;
-  const int cellH = (screenH * 3 / 5 - gap * (kUnlockRows - 1)) / kUnlockRows;
-  return {gap + (i % kUnlockCols) * (cellW + gap), top + (i / kUnlockCols) * (cellH + gap), cellW, cellH};
+  const int cellW = (screenW - gap * (kGridCols + 1)) / kGridCols;
+  const int cellH = (screenH * 3 / 5 - gap * (rows - 1)) / rows;
+  return {gap + (i % kGridCols) * (cellW + gap), top + (i / kGridCols) * (cellH + gap), cellW, cellH};
+}
+
+int cellAt(int x, int y, int count, int rows, int screenW, int screenH) {
+  for (int i = 0; i < count; ++i) {
+    const Cell c = gridCell(i, rows, screenW, screenH);
+    if (x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h) return i;
+  }
+  return -1;
 }
 }  // namespace
 
-bool MirrorActivity::loopUnlock() {
+// Every key goes out at once and is forgotten: no PIN, no pattern, no length, no buffer.
+bool MirrorActivity::sendKey(uint8_t usage) {
+  const bool allowed = phoneAllowsKeyboard();
+  const bool sent = allowed && ble_.typeKey(0, usage);
+  note_ = sent ? "" : allowed ? "Keyboard not ready" : "Keyboard is off in the app";
+  return sent;
+}
+
+void MirrorActivity::openUnlock() {
+  setScreen(Screen::Unlock);
+  if (phoneAllowsKeyboard()) ble_.wakePhone();  // before anything is typed
+  session_->sendCommand(mirror::gen::kCmdUnlockRequest);
+}
+
+void MirrorActivity::finishPattern() {
+  if (patternVisited_) sendKey(kEnterUsage);
+  patternVisited_ = 0;
+}
+
+// Moves the cursor with the arrow keys; returns true when it moved.
+bool MirrorActivity::moveCursor(int count) {
   using Btn = MappedInputManager::Button;
-  bool redraw = false;
-  auto move = [&](int delta) {
-    cursor_ = (cursor_ + delta + kUnlockKeys) % kUnlockKeys;
-    redraw = true;
-  };
-  if (mappedInput.wasPressed(Btn::Left)) move(-1);
-  if (mappedInput.wasPressed(Btn::Right)) move(1);
-  if (mappedInput.wasPressed(Btn::Up)) move(-kUnlockCols);
-  if (mappedInput.wasPressed(Btn::Down)) move(kUnlockCols);
+  int delta = 0;
+  if (mappedInput.wasPressed(Btn::Left)) delta = -1;
+  if (mappedInput.wasPressed(Btn::Right)) delta = 1;
+  if (mappedInput.wasPressed(Btn::Up)) delta = -kGridCols;
+  if (mappedInput.wasPressed(Btn::Down)) delta = kGridCols;
+  if (delta == 0) return false;
+  cursor_ = (cursor_ + delta + count) % count;
+  return true;
+}
 
-  int press = -1;
-  if (mappedInput.wasReleased(Btn::Confirm)) press = cursor_;
-  int tx = 0, ty = 0;
-  if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(tx, ty)) {
-    for (int i = 0; i < kUnlockKeys; ++i) {
-      const Cell c = unlockCell(i, renderer.getScreenWidth(), renderer.getScreenHeight());
-      if (tx >= c.x && tx < c.x + c.w && ty >= c.y && ty < c.y + c.h) press = cursor_ = i;
-    }
-  }
-  if (press >= 0) {
-    // Each key goes out immediately and is forgotten: no PIN, no digit count, no buffer.
-    bool sent = false;
-    if (phoneAllowsKeyboard()) {
-      if (press == 9)
-        sent = ble_.wakePhone();
-      else if (press == 11)
-        sent = ble_.typeKey(0, 0x28);  // Enter
-      else
-        sent = ble_.typeKey(0, mirror::digitUsage(press == 10 ? 0 : press + 1));
-    }
-    note_ = sent ? "" : phoneAllowsKeyboard() ? "Keyboard not ready" : "Keyboard is off in the app";
-    redraw = true;  // the pressed key is highlighted
-  }
-
-  // The phone reports when it unlocks: stop offering the numpad.
+// The phone reports when it unlocks: leave the unlock screens.
+bool MirrorActivity::leaveWhenUnlocked() {
   const auto& phone = session_->phoneStatus();
-  if (phone && !phone->locked && phoneWasLocked_) {
-    setScreen(Screen::Status);
-    note_ = "Phone unlocked";
-    redraw = true;
-  }
+  const bool justUnlocked = phone && !phone->locked && phoneWasLocked_;
   phoneWasLocked_ = phone ? phone->locked : true;
-  return redraw;
+  if (!justUnlocked) return false;
+  setScreen(Screen::Status);
+  note_ = "Phone unlocked";
+  return true;
+}
+
+bool MirrorActivity::loopUnlock() {
+  bool redraw = moveCursor(kPinKeys);
+  int press = mappedInput.wasReleased(MappedInputManager::Button::Confirm) ? cursor_ : -1;
+  int x = 0, y = 0;
+  if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y)) {
+    const int hit = cellAt(x, y, kPinKeys, kPinRows, renderer.getScreenWidth(), renderer.getScreenHeight());
+    if (hit >= 0) press = cursor_ = hit;
+  }
+  if (press == kPinToPattern) {
+    setScreen(Screen::Pattern);
+    return true;
+  }
+  if (press == kPinEnter)
+    sendKey(kEnterUsage);
+  else if (press >= 0)
+    sendKey(mirror::digitUsage(press == kPinZero ? 0 : press + 1));
+  return redraw | (press >= 0) | leaveWhenUnlocked();
+}
+
+bool MirrorActivity::loopPattern() {
+  bool redraw = moveCursor(kPatternKeys);
+  int press = mappedInput.wasReleased(MappedInputManager::Button::Confirm) ? cursor_ : -1;
+  int x = 0, y = 0;
+  const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
+  if (mappedInput.hasTouch()) {
+    // A finger sliding over the dots sends each one once. The path is not drawn: e-ink would keep it visible.
+    if (mappedInput.wasScreenTouchDown(x, y) || mappedInput.isScreenTouchHeld(x, y))
+      visitDot(cellAt(x, y, kDots, kPatternRows, w, h));
+    if (mappedInput.wasScreenTouchReleased()) finishPattern();
+    if (mappedInput.wasScreenTapped(x, y)) {
+      const int hit = cellAt(x, y, kPatternKeys, kPatternRows, w, h);
+      if (hit >= kDots) press = cursor_ = hit;  // dots are handled by the slide above
+    }
+  }
+  if (press == kPatternToPin) {
+    patternVisited_ = 0;
+    setScreen(Screen::Unlock);
+    return true;
+  }
+  if (press == kPatternDone)
+    finishPattern();
+  else if (press >= 0)
+    visitDot(press);
+  return redraw | (press >= 0) | leaveWhenUnlocked();
+}
+
+// Sends dot `dot` (0-8) unless it is already part of this pattern.
+void MirrorActivity::visitDot(int dot) {
+  if (dot < 0 || dot >= kDots || (patternVisited_ & (1u << dot))) return;
+  patternVisited_ |= 1u << dot;
+  sendKey(mirror::digitUsage(dot));
 }
 
 bool MirrorActivity::loopChordSettings() {
@@ -332,29 +403,32 @@ void MirrorActivity::drawStatus() {
   line("Back: leave Mirror");
 }
 
-void MirrorActivity::drawUnlock() {
+void MirrorActivity::drawKeyGrid(const char* title, const char* const* labels, int count, int rows) {
   renderer.clearScreen();
   const int lh = renderer.getLineHeight(UI_10_FONT_ID) + 6;
   int y = lh / 2;
-  renderer.drawCenteredText(UI_10_FONT_ID, y, "Unlock phone", true, EpdFontFamily::BOLD);
+  renderer.drawCenteredText(UI_10_FONT_ID, y, title, true, EpdFontFamily::BOLD);
   y += lh;
   const auto& phone = session_->phoneStatus();
   renderer.drawCenteredText(UI_10_FONT_ID, y,
                             !phone          ? "Phone state unknown"
                             : phone->locked ? "Phone is locked"
                                             : "Phone is unlocked");
-  for (int i = 0; i < 12; ++i) {
-    const Cell c = unlockCell(i, renderer.getScreenWidth(), renderer.getScreenHeight());
+  for (int i = 0; i < count; ++i) {
+    const Cell c = gridCell(i, rows, renderer.getScreenWidth(), renderer.getScreenHeight());
     renderer.drawRect(c.x, c.y, c.w, c.h, i == cursor_ ? 4 : 1, true);
-    const char* label = kUnlockLabels[i];
-    const int tw = renderer.getTextWidth(UI_10_FONT_ID, label);
+    const int tw = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
     renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
-                      label, true, i == cursor_ ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+                      labels[i], true, i == cursor_ ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   }
   y = renderer.getScreenHeight() - 2 * lh;
   if (!note_.empty()) renderer.drawCenteredText(UI_10_FONT_ID, y - lh, note_.c_str());
   renderer.drawCenteredText(UI_10_FONT_ID, y, "Arrows: move  Confirm: press  Back: close");
 }
+
+void MirrorActivity::drawUnlock() { drawKeyGrid("Unlock phone: PIN", kPinLabels, kPinKeys, kPinRows); }
+
+void MirrorActivity::drawPattern() { drawKeyGrid("Unlock phone: pattern", kPatternLabels, kPatternKeys, kPatternRows); }
 
 void MirrorActivity::drawChordSettings() {
   renderer.clearScreen();
@@ -384,6 +458,8 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
   if (screen_ != Screen::Status) {
     if (screen_ == Screen::Unlock)
       drawUnlock();
+    else if (screen_ == Screen::Pattern)
+      drawPattern();
     else
       drawChordSettings();
     const bool first = drawnScreen_ != screen_;

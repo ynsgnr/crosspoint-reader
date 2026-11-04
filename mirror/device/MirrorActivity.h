@@ -24,7 +24,7 @@ class MirrorActivity final : public Activity {
   bool preventAutoSleep() override { return ble_.connected(); }
 
  private:
-  enum class Screen { Status, Unlock, ChordSettings };
+  enum class Screen { Status, Unlock, Pattern, ChordSettings };
 
   void resetSession();
   void startBle();
@@ -32,11 +32,22 @@ class MirrorActivity final : public Activity {
   // Per-screen input; each returns true when the screen needs a redraw. Called with mutex_ held.
   bool loopStatus();
   bool loopUnlock();
+  bool loopPattern();
+  bool sendKey(uint8_t usage);  // false when the keyboard is not ready
+  void openUnlock();
+  void visitDot(int dot);
+  void finishPattern();
+  bool moveCursor(int count);
+  bool leaveWhenUnlocked();
   bool loopChordSettings();
+  void onLinkChanged();
+  void announceKeyboardToPhone();
   bool phoneAllowsKeyboard() const;
   void sendChordToPhone();
   void drawStatus();
   void drawUnlock();
+  void drawPattern();
+  void drawKeyGrid(const char* title, const char* const* labels, int count, int rows);
   void drawChordSettings();
   mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
 
@@ -65,5 +76,6 @@ class MirrorActivity final : public Activity {
   uint32_t chordSentEpoch_ = 0;  // connection the chord was last announced to the phone on
   bool hidReadyAnnounced_ = false;
   bool phoneWasLocked_ = true;
+  uint16_t patternVisited_ = 0;  // dots already sent during this touch; cleared on release, never drawn
 };
 #endif

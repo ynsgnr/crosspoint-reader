@@ -47,8 +47,9 @@ as one block with a thick bar), a fixed 3-line draft area with cursor. Up/Down (
 * Off by default. *Hold Left* on the waiting screen switches the HID keyboard on or off (`MirrorSettings`) and forgets the paired phone, because the keyboard changes the GATT database the phone caches per bond.
   With it on, the same bond and the same pairing carry the mirror and the keyboard; there is no second pairing entry.
 * `MirrorHid`: HID-over-GATT keyboard + consumer + system-control report map, HID Information, Protocol Mode, Control Point, Battery, PnP. Built by hand (not `NimBLEHIDDevice`) so all of it needs the authenticated link.
-* **Unlock screen** (connected: *hold Left*): 4x3 pad (1-9, Wake, 0, Enter) on touch or with the arrow keys + Confirm. Each press is sent and released at once; no PIN, digit count or buffer exists, and leaving the screen clears the one-line note.
-  *Wake* sends a Shift tap then the System Wake Up usage. The phone reports `locked` in its status; the pad closes by itself when it unlocks.
+* **Unlock screens** (connected: *hold Left*): opening them wakes the phone first (a Shift tap, then the System Wake Up usage). The PIN pad (1-9, 0, Enter) and the pattern screen work by touch or with the arrow keys + Confirm.
+  Pattern: dots 0-8 row by row, each sent as its digit when the finger first touches it (Android's pattern lock reads the string "01258" for 0>1>2>5>8); lifting the finger sends Enter ("Done" does that on boards without touch).
+  Every key is sent and released at once; no PIN, pattern, length or buffer exists, and the pattern is not drawn (e-ink would keep it). The phone reports `locked`; the screen closes by itself when it unlocks.
 * **Trigger chord**: *Confirm* on the linked screen before the phone app runs sends the chord over HID (default Ctrl+Alt+Shift+M). *Hold Right* edits it (`core/Chord`: at least two modifiers, no Meta, letter or digit,
   common two-modifier shortcuts refused). The device announces it to the phone (`chord` command) so both sides agree.
 

@@ -47,12 +47,12 @@ Everything below is implemented and compiles (both firmware images, host tests, 
 2. Only LE Secure Connections with passkey is accepted: try a legacy-only and a Just Works central. `sm_sc_only` also refuses phones without Secure Connections.
 3. One pairing gives both the HID keyboard and the app's GATT link; forgetting on either side removes both; re-pairing from clean works. Android keeps the HID connection itself;
    the app's "keyboard" switch only changes what the app and the device do (`keyboard_allowed`), not the OS input-device profile.
-4. The keyboard types the PIN on the lock screen, also after a reboot before first unlock (the app cannot run then; the pad types blind). Android may require the screen to be on: test *Wake*.
+4. The keyboard types the PIN on the lock screen, also after a reboot before first unlock (the app cannot run then; the pad types blind). Android may require the screen to be on: test the wake sent when the unlock screen opens.
 5. Which wake mechanism works (Shift tap vs System Wake Up usage) per phone. Android's on-screen keyboard is normally hidden while a hardware keyboard is connected; check yours.
 6. The system HID connection and the app's GATT connection on one link; connection parameters (`updateConnParams` 15-30 ms) with HID traffic; the NimBLE host's connection count.
 7. The accessibility service receives the chord with the screen on, off and on the lock screen; the event is consumed while every other key (PIN digits) passes through; Android lets the service start the foreground service from the background
    (`REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND` is declared, but needs a Companion association, which `CompanionPairing` makes).
-8. Digit keys 1-9 do NOT draw a pattern lock; assume a PIN or password is required. The pad sends main-row digits only; a lock screen that wants keypad digits needs `0x59-0x62` (not implemented).
+8. Pattern lock: the user found in the Android source that the digits 0-8 (row by row) drive the pattern view ("01258" for 0>1>2>5>8). Unverified here: whether Enter after the last dot is needed or harmful, and whether a fast finger skips dots. The pad sends main-row digits only; a lock screen that wants keypad digits needs `0x59-0x62` (not implemented).
 9. X4 Pro: MCU (C3 vs S3), heap headroom with HID + mirror service (the C3 image grew: see `build size` in the PR), touch tap coordinates in `wasScreenTapped`, and that the page-turner ring is off while Mirror is open.
 10. Bonds survive a reboot on both sides; nothing about a PIN is persisted (only `kbd`, `chord_mod`, `chord_key`, `sec_epoch` are in NVS).
 
