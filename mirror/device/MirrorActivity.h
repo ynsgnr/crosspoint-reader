@@ -76,6 +76,7 @@ class MirrorActivity final : public Activity {
   uint32_t chordSentEpoch_ = 0;  // connection the chord was last announced to the phone on
   bool hidReadyAnnounced_ = false;
   bool phoneWasLocked_ = true;
+  int subScreenPartials_ = 0;    // partial refreshes since the last full one on the unlock/chord screens
   uint16_t patternVisited_ = 0;  // dots already sent during this touch; cleared on release, never drawn
 };
 #endif

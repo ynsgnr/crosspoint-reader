@@ -63,10 +63,7 @@ switch, resync, and every 20 partials (`RefreshOverrides` per template). Dirty r
 dirties one 24 px line. `HalDisplay` does not expose the SDK's experimental `displayWindow`, so rects only drive the policy.
 
 ## Add a template
-Add `templates/<name>/` with a `TemplateRenderer` subclass (`onFull`, `onDiff`, `render`, `onButton`, `dump`) and one
-`MIRROR_REGISTER_TEMPLATE(Class, id, minSchema, maxSchema)` line; `retink/scripts/sync-fork.sh` puts `<name>_gen.h` and the golden
-transcripts in place. Nothing else changes: the firmware picks the folder up through `mirror/build.py`, CMake globs `templates/`,
-and the golden replay, the simulator and the capabilities handshake work for every registered template.
+See the retink README, "Add a template". Device part: one `TemplateRenderer` under `templates/<name>/` plus `MIRROR_REGISTER_TEMPLATE`.
 
 ## Rebase on upstream
 See `MIRROR_CHANGES.md`.

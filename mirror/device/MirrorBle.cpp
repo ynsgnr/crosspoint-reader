@@ -44,7 +44,7 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
  public:
   explicit ServerCallbacks(MirrorBle& b) : b_(b) {}
   void onConnect(NimBLEServer* s, NimBLEConnInfo& info) override {
-    b_.onConnected(info);
+    if (!b_.onConnected(info)) return;
     // 15-30 ms interval so typed letters show quickly.
     s->updateConnParams(info.getConnHandle(), 12, 24, 0, 400);
     s->setDataLen(info.getConnHandle(), 251);
@@ -188,7 +188,8 @@ bool MirrorBle::drain(std::vector<uint8_t>& out, bool& overflowed) {
   overflowed = overflow_;
   overflow_ = false;
   if (inbound_.empty()) return false;
-  out.swap(inbound_);
+  out.assign(inbound_.begin(),
+             inbound_.end());  // a copy, so inbound_ keeps its reserved capacity (no allocation on the host task)
   inbound_.clear();
   return true;
 }
@@ -228,11 +229,11 @@ void MirrorBle::onWrite(const uint8_t* data, size_t len, const NimBLEConnInfo& l
   inbound_.insert(inbound_.end(), data, data + len);
 }
 
-void MirrorBle::onConnected(const NimBLEConnInfo& link) {
+bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
   // An unknown phone may only connect while the user has the pairing window open.
   if (!NimBLEDevice::isBonded(link.getIdAddress()) && !pairingOpen()) {
     server_->disconnect(link.getConnHandle());
-    return;
+    return false;
   }
   {
     std::lock_guard<std::mutex> g(mutex_);  // bytes of a previous link must not reach the new session
@@ -244,10 +245,12 @@ void MirrorBle::onConnected(const NimBLEConnInfo& link) {
   // Ask for encryption (bonded phone) or start pairing (open window) instead of waiting for the phone to try.
   if (!linkSecure(link)) NimBLEDevice::startSecurity(link.getConnHandle());
   statusChanged_ = true;
+  return true;
 }
 
 void MirrorBle::onDisconnected() {
   connected_ = false;
+  connHandle_ = kNoConnection;
   if (hid_) hid_->onLinkDown();
   passkey_ = -1;
   statusChanged_ = true;
@@ -273,13 +276,14 @@ void MirrorBle::onAuthComplete(const NimBLEConnInfo& link) {
   statusChanged_ = true;
   // Encrypted alone is not enough: a Just Works bond has no passkey and could be made by anyone nearby.
   if (!link.isEncrypted() || !link.isAuthenticated() || !link.isBonded()) {
+    NimBLEDevice::deleteBond(link.getIdAddress());  // the stack may already have stored the weak bond
+    pairingUntilMs_ = 0;                            // a failed attempt closes the window: retry on purpose
     if (server_) server_->disconnect(link.getConnHandle());
     return;
   }
   dropOtherBonds(link);  // one phone at a time: pairing a new one replaces the old
   pairingUntilMs_ = 0;
-  epoch_++;
-  connected_ = true;
+  if (!connected_.exchange(true)) epoch_++;  // a repeated authentication on the same link is not a new connection
 }
 
 void MirrorBle::dropOtherBonds(const NimBLEConnInfo& keep) {

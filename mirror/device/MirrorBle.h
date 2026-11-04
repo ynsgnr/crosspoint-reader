@@ -26,7 +26,6 @@ class MirrorBle {
   // NoMemory when the heap cannot host the stack. `keyboard` adds the HID keyboard to the same GATT server and bond.
   StartResult start(const char* deviceName, const std::vector<uint8_t>& capabilities, bool keyboard);
   void stop();  // stops advertising, disconnects, deinitialises the stack
-  bool running() const { return running_; }
 
   // True once the link is encrypted and authenticated; nothing is sent or accepted before that.
   bool connected() const { return connected_.load(); }
@@ -57,7 +56,7 @@ class MirrorBle {
 
   // NimBLE callbacks (public for the callback classes in the .cpp).
   void onWrite(const uint8_t* data, size_t len, const NimBLEConnInfo& link);
-  void onConnected(const NimBLEConnInfo& link);
+  bool onConnected(const NimBLEConnInfo& link);  // false when the link was refused
   void onDisconnected();
   void onMtu(uint16_t mtu);
   uint32_t onPasskeyDisplay();
@@ -72,7 +71,7 @@ class MirrorBle {
   std::atomic<uint32_t> epoch_{0};
   std::atomic<bool> statusChanged_{false};
   std::atomic<int32_t> passkey_{-1};
-  std::atomic<uint16_t> connHandle_{0xFFFF};
+  std::atomic<uint16_t> connHandle_{kNoConnection};
   std::atomic<uint16_t> mtu_{23};
   std::mutex mutex_;
   std::vector<uint8_t> inbound_;
@@ -81,6 +80,7 @@ class MirrorBle {
   std::unique_ptr<MirrorHid> hid_;
   NimBLECharacteristic* eventChar_ = nullptr;
   static constexpr size_t kInboundCap = 8192;
+  static constexpr uint16_t kNoConnection = 0xFFFF;
 };
 
 }  // namespace mirror

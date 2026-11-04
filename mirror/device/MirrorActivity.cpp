@@ -11,6 +11,7 @@
 namespace {
 constexpr char kDeviceName[] = "E-Ink Reader";  // generic on purpose: the advertisement identifies nothing
 constexpr uint32_t kPairingWindowMs = 120000;
+constexpr int kPartialsBeforeFull = 10;
 }  // namespace
 
 void MirrorActivity::resetSession() {
@@ -223,7 +224,9 @@ int cellAt(int x, int y, int count, int rows, int screenW, int screenH) {
 bool MirrorActivity::sendKey(uint8_t usage) {
   const bool allowed = phoneAllowsKeyboard();
   const bool sent = allowed && ble_.typeKey(0, usage);
-  note_ = sent ? "" : allowed ? "Keyboard not ready" : "Keyboard is off in the app";
+  note_ = sent      ? ""
+          : allowed ? "Keyboard not ready: check the phone's Bluetooth"
+                    : "Keyboard is off: enable it in the app";
   return sent;
 }
 
@@ -383,12 +386,14 @@ void MirrorActivity::drawStatus() {
         line("Hold Right: trigger chord");
       } else {
         const int bonds = ble_.bondCount();
-        line(ble_.pairingOpen() ? "Pairing: open on your phone" : bonds ? "Waiting for your phone" : "No phone paired");
+        line(ble_.pairingOpen() ? "Pairing open: Retink app > Pair e-ink device"
+             : bonds            ? "Waiting for your phone"
+                                : "No phone paired");
         line(std::string("Name: ") + kDeviceName);
         y += lh / 2;
         if (!ble_.pairingOpen()) line("Confirm: pair phone");
         if (bondsForgotten_)
-          line("Paired phone forgotten.");
+          line("Phone forgotten: also remove it in its Bluetooth settings");
         else if (bonds)
           line("Hold Confirm: forget phone");
         line(keyboardOn_ ? "Keyboard: on (hold Left: off)" : "Keyboard: off (hold Left: on)");
@@ -414,16 +419,21 @@ void MirrorActivity::drawKeyGrid(const char* title, const char* const* labels, i
                             !phone          ? "Phone state unknown"
                             : phone->locked ? "Phone is locked"
                                             : "Phone is unlocked");
+  // On touch boards no key is highlighted: e-ink would keep showing the last key after power-off.
+  const bool showCursor = !mappedInput.hasTouch();
   for (int i = 0; i < count; ++i) {
     const Cell c = gridCell(i, rows, renderer.getScreenWidth(), renderer.getScreenHeight());
-    renderer.drawRect(c.x, c.y, c.w, c.h, i == cursor_ ? 4 : 1, true);
+    const bool selected = showCursor && i == cursor_;
+    renderer.drawRect(c.x, c.y, c.w, c.h, selected ? 4 : 1, true);
     const int tw = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
     renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
-                      labels[i], true, i == cursor_ ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+                      labels[i], true, selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   }
   y = renderer.getScreenHeight() - 2 * lh;
   if (!note_.empty()) renderer.drawCenteredText(UI_10_FONT_ID, y - lh, note_.c_str());
-  renderer.drawCenteredText(UI_10_FONT_ID, y, "Arrows: move  Confirm: press  Back: close");
+  renderer.drawCenteredText(
+      UI_10_FONT_ID, y,
+      mappedInput.hasTouch() ? "Tap or slide  Back: close" : "Arrows: move  Confirm: press  Back: close");
 }
 
 void MirrorActivity::drawUnlock() { drawKeyGrid("Unlock phone: PIN", kPinLabels, kPinKeys, kPinRows); }
@@ -448,10 +458,10 @@ void MirrorActivity::drawChordSettings() {
   for (int i = 0; i < 5; ++i) line((i == cursor_ ? "> " : "  ") + rows[i], i == cursor_);
   y += lh / 2;
   const mirror::ChordCheck check = mirror::checkChord(editChord_);
-  line(check == mirror::ChordCheck::Ok ? "Sent when you press Confirm on the linked screen"
+  line(check == mirror::ChordCheck::Ok ? "Confirm on the linked screen sends this chord"
                                        : mirror::chordCheckText(check));
   y = renderer.getScreenHeight() - 2 * lh;
-  line("Up/Down: row  Confirm: change  Back: discard");
+  line("Up/Down: row  Confirm: change  Back: cancel");
 }
 
 mirror::RefreshKind MirrorActivity::drawFrame() {
@@ -462,11 +472,12 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
       drawPattern();
     else
       drawChordSettings();
-    const bool first = drawnScreen_ != screen_;
+    const bool full = drawnScreen_ != screen_ || ++subScreenPartials_ >= kPartialsBeforeFull;  // clears ghosting
     drawnScreen_ = screen_;
     statusShown_ = false;
     forceFull_ = true;  // the next chat or status frame redraws everything
-    return first ? mirror::RefreshKind::Full : mirror::RefreshKind::Partial;
+    if (full) subScreenPartials_ = 0;
+    return full ? mirror::RefreshKind::Full : mirror::RefreshKind::Partial;
   }
   drawnScreen_ = Screen::Status;
   mirror::TemplateRenderer* t = session_ ? session_->active() : nullptr;
