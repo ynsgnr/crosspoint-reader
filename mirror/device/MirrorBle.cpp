@@ -122,8 +122,9 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(gen::kUuidService);
   if (keyboard) {
+    // No keyboard appearance: Android then treats the device as a keyboard, shows its own PIN and answers the passkey
+    // request with it instead of asking the user for the code on our screen.
     adv->addServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));  // the phone's HID host looks for this
-    adv->setAppearance(0x03C1);                                      // keyboard
   }
   adv->enableScanResponse(true);  // before setName: the name goes to the scan response, not the full main packet
   adv->setName(deviceName);
@@ -179,9 +180,8 @@ void MirrorBle::service() {
   if (wanted && !adv->isAdvertising()) {
     bool ok = adv->start();
     if (!ok && keyboard_ && !minimalAdvertisement_) {
-      // The keyboard adds a service UUID and an appearance; retry with only the mirror service UUID.
+      // The keyboard adds a service UUID; retry with only the mirror service UUID.
       adv->removeServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));
-      adv->setAppearance(0);
       minimalAdvertisement_ = true;
       ok = adv->start();
       LOG_INF("MIRROR", "retry with the minimal advertisement: %s", ok ? "on" : "failed");
