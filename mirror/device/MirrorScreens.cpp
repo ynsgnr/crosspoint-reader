@@ -201,7 +201,8 @@ void MirrorActivity::drawChordSettings() {
   for (int row = 0; row < kRowCount; ++row) {
     std::string label = "Save";
     if (row < kRowKey)
-      label = std::string(kModifierRows[row].name) + ": " + ((editChord_.mods & kModifierRows[row].mask) ? "on" : "off");
+      label =
+          std::string(kModifierRows[row].name) + ": " + ((editChord_.mods & kModifierRows[row].mask) ? "on" : "off");
     else if (row == kRowKey)
       label = "Key: " + mirror::chordLabel({0, editChord_.key});
     text.line((row == cursor_ ? "> " : "  ") + label, row == cursor_);
