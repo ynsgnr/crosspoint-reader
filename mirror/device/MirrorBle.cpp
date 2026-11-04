@@ -135,7 +135,8 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   connected_ = false;
   statusChanged_ = true;
   pairingUntilMs_ = 0;
-  LOG_INF("MIRROR", "up, %d bonds, keyboard %s", NimBLEDevice::getNumBonds(), keyboard ? "on" : "off");
+  LOG_INF("MIRROR", "build %s %s, %d bonds, keyboard %s", __DATE__, __TIME__, NimBLEDevice::getNumBonds(),
+          keyboard ? "on" : "off");
   return StartResult::Ok;
 }
 
