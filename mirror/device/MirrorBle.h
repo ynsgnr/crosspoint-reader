@@ -57,7 +57,7 @@ class MirrorBle {
   // NimBLE callbacks (public for the callback classes in the .cpp).
   void onWrite(const uint8_t* data, size_t len, const NimBLEConnInfo& link);
   bool onConnected(const NimBLEConnInfo& link);  // false when the link was refused
-  void onDisconnected();
+  void onDisconnected(int reason);
   void onMtu(uint16_t mtu);
   uint32_t onPasskeyDisplay();
   void onAuthComplete(const NimBLEConnInfo& link);

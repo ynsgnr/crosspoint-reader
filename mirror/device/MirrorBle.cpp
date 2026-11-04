@@ -37,7 +37,7 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
     s->updateConnParams(info.getConnHandle(), 12, 24, 0, 400);
     s->setDataLen(info.getConnHandle(), 251);
   }
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int) override { b_.onDisconnected(); }
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override { b_.onDisconnected(reason); }
   void onMTUChange(uint16_t mtu, NimBLEConnInfo&) override { b_.onMtu(mtu); }
   uint32_t onPassKeyDisplay() override { return b_.onPasskeyDisplay(); }
   void onAuthenticationComplete(NimBLEConnInfo& info) override { b_.onAuthComplete(info); }
@@ -270,8 +270,8 @@ bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
   return true;
 }
 
-void MirrorBle::onDisconnected() {
-  LOG_INF("MIRROR", "central disconnected");
+void MirrorBle::onDisconnected(int reason) {
+  LOG_INF("MIRROR", "central disconnected, reason 0x%x", static_cast<unsigned>(reason));
   linkUp_ = false;
   connected_ = false;
   connHandle_ = kNoConnection;
@@ -286,9 +286,11 @@ uint32_t MirrorBle::onPasskeyDisplay() {
   // A passkey is only asked for when a (re)pairing runs; outside the window nothing may start one, not even a
   // phone that is already bonded.
   if (!pairingOpen()) {
+    LOG_INF("MIRROR", "passkey requested outside the pairing window: refused");
     if (server_) server_->disconnect(connHandle_.load());
     return 0;
   }
+  LOG_INF("MIRROR", "passkey requested, showing it");
   const uint32_t code = esp_random() % 1000000;
   passkey_ = static_cast<int32_t>(code);
   statusChanged_ = true;
