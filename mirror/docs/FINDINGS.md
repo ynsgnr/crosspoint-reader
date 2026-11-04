@@ -43,6 +43,7 @@ registration: `activityManager.replaceActivity(...)` starts one. Replace (not pu
 ## Found on hardware
 * Advertising with `BLE_OWN_ADDR_RPA_RANDOM_DEFAULT` fails on the X4 Pro: `Error enabling advertising; rc=530` (HCI 0x12, invalid parameters). The public address works, so the mirror uses it.
 * The device name did not fit in the main advertising packet (`Data length exceeded`); it now goes in the scan response.
+* A keyboard appearance (0x03C1) in the advertisement made Android classify the device as a keyboard (class 0x540; AOSP `btm_ble_get_appearance_as_cod`). For a keyboard, `BondStateMachine` PIN_REQUEST invents a random PIN, shows it on the phone and answers the passkey request with it, so the code on our screen is never asked for and pairing ends in "incorrect PIN or passkey" (phone log: `variant=DISPLAY_PIN`, `SMP_PasskeyReply` 90 ms after the request, `SMP_CONFIRM_VALUE_ERR`). The appearance is no longer advertised; the HID service UUID alone only gives class 0x500, which takes the normal passkey dialog.
 
 ## Not verified (security, keyboard and chord addendum)
 Everything below is implemented and compiles (both firmware images, host tests, Kotlin tests, APK) but has NOT been run on hardware. Test in this order:
