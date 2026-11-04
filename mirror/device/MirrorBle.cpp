@@ -80,6 +80,8 @@ void configureSecurity() {
 MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vector<uint8_t>& capabilities,
                                         bool keyboard) {
   if (running_) return StartResult::Ok;
+  keyboard_ = keyboard;
+  minimalAdvertisement_ = false;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < kMinLargestBlock) {
     LOG_ERR("MIRROR", "not enough heap for BLE: largest block %u",
             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
@@ -174,7 +176,16 @@ void MirrorBle::service() {
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   const bool wanted = !linkUp_ && (pairingOpen() || NimBLEDevice::getNumBonds() > 0);
   if (wanted && !adv->isAdvertising()) {
-    const int started = adv->start() ? 1 : 0;
+    bool ok = adv->start();
+    if (!ok && keyboard_ && !minimalAdvertisement_) {
+      // The keyboard adds a service UUID and an appearance; retry with only the mirror service UUID.
+      adv->removeServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));
+      adv->setAppearance(0);
+      minimalAdvertisement_ = true;
+      ok = adv->start();
+      LOG_INF("MIRROR", "retry with the minimal advertisement: %s", ok ? "on" : "failed");
+    }
+    const int started = ok ? 1 : 0;
     if (started != advertisingState_.load()) LOG_INF("MIRROR", "advertising %s", started ? "on" : "FAILED to start");
     advertisingState_ = started;
   }

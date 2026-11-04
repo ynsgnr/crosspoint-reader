@@ -67,6 +67,8 @@ class MirrorBle {
 
   bool running_ = false;
   std::atomic<uint32_t> pairingUntilMs_{0};
+  bool keyboard_ = false;
+  bool minimalAdvertisement_ = false;      // fell back to the smallest advertisement after a failed start
   std::atomic<bool> linkUp_{false};        // a central is connected, secure or not
   std::atomic<int> advertisingState_{-1};  // last advertising result: -1 not tried, 0 failed, 1 on
   std::atomic<bool> connected_{false};
