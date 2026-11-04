@@ -49,6 +49,8 @@ class MirrorBle {
   // "Pair phone": unbonded phones may connect and pair for `durationMs`.
   void openPairing(uint32_t durationMs);
   bool pairingOpen() const;
+  bool advertising() const { return advertisingState_.load() == 1; }
+  bool advertisingFailed() const { return advertisingState_.load() == 0; }
   // Advertises while the window is open or a bond exists, and not connected. Call from loop().
   void service();
 
@@ -66,7 +68,7 @@ class MirrorBle {
   bool running_ = false;
   std::atomic<uint32_t> pairingUntilMs_{0};
   std::atomic<bool> linkUp_{false};  // a central is connected, secure or not
-  int advertisingState_ = -1;        // last logged advertising result: -1 unknown, 0 off or failed, 1 on
+  std::atomic<int> advertisingState_{-1};  // last advertising result: -1 not tried, 0 failed, 1 on
   std::atomic<bool> connected_{false};
   std::atomic<uint32_t> epoch_{0};
   std::atomic<bool> statusChanged_{false};

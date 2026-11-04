@@ -256,6 +256,10 @@ void MirrorActivity::drawStatus() {
       text.line(ble_.bondCount() ? "Waiting for your phone" : "No phone paired");
     }
     text.line(std::string("Name: ") + kDeviceName);
+    // Visible without a serial cable: is the radio actually advertising?
+    text.line(ble_.advertising()         ? "Bluetooth: advertising"
+              : ble_.advertisingFailed() ? "Bluetooth: advertising FAILED"
+                                         : "Bluetooth: idle (not pairing)");
     if (bondsForgotten_) text.line("Phone forgotten: also remove it in its Bluetooth settings");
     buildActions();
     buttons_.draw(renderer, renderer.getScreenHeight() / 2, cursor_, !mappedInput.hasTouch());

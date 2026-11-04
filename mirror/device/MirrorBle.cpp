@@ -107,7 +107,14 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
     hid_ = std::make_unique<MirrorHid>();
     hid_->create(server_);
   }
-  server_->start();
+  if (!server_->start()) {
+    LOG_ERR("MIRROR", "GATT server failed to start (keyboard %d)", keyboard);
+    NimBLEDevice::deinit(true);
+    server_ = nullptr;
+    eventChar_ = nullptr;
+    hid_.reset();
+    return StartResult::Failed;
+  }
 
   // Only the service UUID (the Companion Device Manager filters on it) and a generic name: no content, no serial.
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
@@ -168,7 +175,7 @@ void MirrorBle::service() {
   const bool wanted = !linkUp_ && (pairingOpen() || NimBLEDevice::getNumBonds() > 0);
   if (wanted && !adv->isAdvertising()) {
     const int started = adv->start() ? 1 : 0;
-    if (started != advertisingState_) LOG_INF("MIRROR", "advertising %s", started ? "on" : "FAILED to start");
+    if (started != advertisingState_.load()) LOG_INF("MIRROR", "advertising %s", started ? "on" : "FAILED to start");
     advertisingState_ = started;
   }
   if (!wanted && adv->isAdvertising()) {
