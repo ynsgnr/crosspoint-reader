@@ -1,7 +1,9 @@
-# Findings (measured 2026-11-02, branch `claude/elegant-shannon-i9uuis`, SDK pinned at 5e94fe7)
+# Findings (measured 2026-11-02 and later, SDK pinned at 5e94fe7)
+
+Short rules from the hardware bugs: `LESSONS.md`. This file keeps the measurements and the detail.
 
 ## BLE stack
-* Yes. `[ble_page_turner]` in `platformio.ini` builds NimBLE-Arduino 2.5.1 under the SDK's `BleKeyboardHost` (HID **central** only).
+* The build already has a BLE stack: `[ble_page_turner]` in `platformio.ini` builds NimBLE-Arduino 2.5.1 under the SDK's `BleKeyboardHost` (HID **central** only).
   The peripheral and broadcaster roles are compiled out with `-DCONFIG_BT_NIMBLE_ROLE_{PERIPHERAL,BROADCASTER}_DISABLED=1`
   (NimBLE-Arduino `nimconfig.h` gates each role on those macros). The X4 Pro (`env:x4pro`) uses the prebuilt Arduino core
   with Bluetooth; the X4 (`env:default`) rebuilds the core with `custom_sdkconfig`.
@@ -51,7 +53,7 @@ registration: `activityManager.replaceActivity(...)` starts one. Replace (not pu
 * Flowe OS (a separate firmware for the same hardware, github.com/andrewjiang/flowe-os) documents BLE lessons that match ours: wait for every link to close before `NimBLEDevice::deinit` (a heap assert otherwise); callbacks that outlive the stack must not keep a stale owner; GATT objects can leak about 1.7 KB per stop/start cycle (we now log heap at every stop); parse on the main loop, not the host task; 5 s supervision timeout. Not taken: ANCS (iPhone only), Just Works pairing, the sleep poster, SD `update.bin` flashing (would save the cable during testing).
 
 ## Not verified (security, keyboard and chord addendum)
-Everything below is implemented and compiles (both firmware images, host tests, Kotlin tests, APK) but has NOT been run on hardware. Test in this order:
+Verified on hardware (X4 Pro, Pixel on Android 16): passkey pairing and bonding, reconnect after leaving Mirror, mirroring and scrolling, phone lock state, PIN entry over the HID keyboard. The list below was written before that and is still open for the rest (sniffer check, legacy/Just Works refusal, pattern drag, wake, chord, bonds across a phone reboot). Test in this order:
 1. A sniffer (nRF Sniffer) after pairing shows no plaintext; an unbonded central cannot read, write or subscribe, including the HID characteristics and the CCCDs.
    Risk: `ble_gatts_set_clt_cfg_perm_flags` is a private NimBLE function (declared by hand in `MirrorBle.cpp`); confirm the CCCD really asks for encryption.
 2. Only LE Secure Connections with passkey is accepted: try a legacy-only and a Just Works central. `sm_sc_only` also refuses phones without Secure Connections.
@@ -63,15 +65,14 @@ Everything below is implemented and compiles (both firmware images, host tests, 
 7. The accessibility service receives the chord with the screen on, off and on the lock screen; the event is consumed while every other key (PIN digits) passes through; Android lets the service start the foreground service from the background
    (`REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND` is declared, but needs a Companion association, which `CompanionPairing` makes).
 8. Pattern lock: the user found in the Android source that the digits 0-8 (row by row) drive the pattern view ("01258" for 0>1>2>5>8). Unverified here: whether Enter after the last dot is needed or harmful, and whether a fast finger skips dots. The pad sends main-row digits only; a lock screen that wants keypad digits needs `0x59-0x62` (not implemented).
-9. X4 Pro: MCU (C3 vs S3), heap headroom with HID + mirror service (the C3 image grew: see `build size` in the PR), touch tap coordinates in `wasScreenTapped`, and that the page-turner ring is off while Mirror is open.
+9. X4 Pro: MCU (C3 vs S3), heap headroom with HID + mirror service (the C3 image grew: see the Flash and RAM table above), touch tap coordinates in `wasScreenTapped`, and that the page-turner ring is off while Mirror is open.
 10. Bonds survive a reboot on both sides; nothing about a PIN is persisted (only `kbd`, `chord_mod`, `chord_key`, `sec_epoch` are in NVS).
 
 ## Not verified
-* Anything on hardware or a phone: pairing UX, advertising, connection parameters, throughput, real refresh quality and ghosting
-  cadence, heap headroom, battery. No emulator was run (no KVM); the app was compiled (`assembleDebug`) and its logic unit-tested on the JVM.
+* Not measured on hardware: throughput, real refresh quality and ghosting cadence, heap headroom over many visits (the heap is now logged at every stop), battery. No emulator was run (no KVM).
 * Running the C3 image: it compiles and links; whether the `-U` role flags and BLE peripheral work on the C3 controller is untested.
 * The `CoverGridHomeUi` change was compiled, not seen on a device. Mirror's cover-grid icon reuses the Transfer icon.
-* App resource ids in `ChatAppSelectors` (from memory, unvalidated); Telegram needs a content-description parser.
+* Chat app selectors: which apps were checked against a real capture is listed in the retink README ("Limits"). Telegram needs a content-description parser.
 * `FLAG_SECURE` probe behaviour on real devices (needs API 34+; rate limited).
-* Dark mode is brightness-only now (the overlay, timeout and proximity guard were removed after the overlay locked the phone up on hardware). The capture export was compiled and unit-tested only; `FLAG_SECURE` probing on API < 34 is open.
+* Dark mode is brightness-only now (the overlay, timeout and proximity guard were removed after the overlay locked the phone up on hardware). The capture export was compiled and unit-tested only.
 * Repo process: `firmware-handoff` (four independent reviews, human acceptance, hardware testing) has not been done.

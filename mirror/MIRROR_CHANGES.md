@@ -10,11 +10,11 @@ To check the list is complete after a rebase: `git diff --stat upstream/develop 
 | Upstream file | Change | Why |
 | --- | --- | --- |
 | `platformio.ini` | `extra_configs` is now a two-line list that also names `mirror/platformio_mirror.ini` | Defines the `mirror` and `x4pro-mirror` environments (feature flag, NimBLE role flags, `mirror/build.py` that compiles `mirror/`). All build configuration lives in that file. |
-| `src/activities/home/HomeActivity.h` | one method declaration, `onMoreOpen()` (plus `onMirrorOpen()`) | Home menu entry handlers |
+| `src/activities/home/HomeActivity.h` | two method declarations, `onMirrorOpen()` and `onMoreOpen()` | Home menu entry handlers |
 | `src/activities/home/HomeActivity.cpp` | a local `#ifdef CROSSPOINT_MIRROR` block (defines `MIRROR_ENABLED`, includes `device/MirrorActivity.h`, `device/MoreMenuActivity.h`). In mirror builds the **list** Home shows Library, Sync Now (when set up), Mirror and "More..." only: `getMenuItemCount()`, `activateSelection`, the item list in `render()` and the initial selection are switched by `MIRROR_ENABLED && !coverGridUi`. The cover-grid Home keeps its tabs (Mirror is its last one). Stock builds compile the original code. | The list Home cannot scroll, so a 7th row fell below the screen; File Browser, File Transfer, OPDS/Plugins and Settings moved under "More..." (`mirror/device/MoreMenuActivity`) |
 | `src/components/CoverGridHomeUi.cpp`, `.h` | the same 5-line `MIRROR_ENABLED` block; tab loop 6 -> 7 slots, one icon-table entry, icon index mapping by "present" table, `tabItems` array size 7 | Same Home entry for the cover-grid theme (the X4 Pro default theme needs PSRAM) |
 
-New file outside `mirror/`: `.github/workflows/mirror.yml` (host tests, manifest check, spec sync, firmware builds).
+Outside `mirror/` and the table above: `.github/workflows/mirror.yml` (new: host tests, manifest check, spec sync, the X4 Pro mirror build; the X4 build on manual dispatch), `ci.yml` (the fork builds only the X4 Pro and cancels superseded runs) and `pr-firmware-links.yml` (expects only `firmware-x4pro.bin`). `release.yml` and `release_candidate.yml` still build every board on purpose.
 
 Not touched: `ActivityManager`, translations (`lib/I18n`: the menu label "Mirror" is a plain string, not translated),
 `partitions*.csv`, `src/main.cpp`, `lib/BlePageTurner`, the SDK submodule, any `sdkconfig`.

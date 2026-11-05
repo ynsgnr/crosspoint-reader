@@ -1,7 +1,7 @@
 # mirror/: BLE text mirror for the Xteink X4 / X4 Pro
 
 Device side of `ynsgnr/retink`. The Mirror screen (last Home menu item) advertises as `E-Ink Reader` while it is open and
-renders the template the phone sends. Security, pairing, the optional keyboard and the trigger chord are described below. Upstream touchpoints: `MIRROR_CHANGES.md`. Findings and unverified items: `docs/FINDINGS.md`.
+renders the template the phone sends. Security, pairing, the optional keyboard and the trigger chord are described below. Upstream touchpoints: `MIRROR_CHANGES.md`. Findings and unverified items: `docs/FINDINGS.md`. Lessons from the hardware bugs: `docs/LESSONS.md`.
 
 ```
 core/        Wire, Envelope, Session (ack/resync/errors), TemplateRenderer + registry, RefreshPolicy, Gfx   (portable)
@@ -16,7 +16,11 @@ sim/ tests/  host simulator (PNG frames) and tests; test/golden/ = transcripts f
 pio run -e x4pro-mirror -t upload   # X4 Pro (ESP32-S3)
 pio run -e mirror -t upload         # X4 (ESP32-C3)
 ```
-Without `-DCROSSPOINT_MIRROR=1` (every other environment) none of this is compiled.
+Without `-DCROSSPOINT_MIRROR=1` (every other environment) none of this is compiled. Use the PlatformIO core CI uses (the pioarduino 6.1.19 zip, see `.github/workflows/mirror.yml`): PlatformIO 6.2.0 from PyPI fails in the X4 core rebuild. Pull requests build the X4 Pro image only (`firmware-x4pro-mirror.bin`, artifact of the `mirror` workflow); the X4 image builds on manual dispatch.
+
+First pairing: open Mirror and tap Pair phone, then in the Retink app tap "2. Pair e-ink device" and type the 6-digit code shown here. After that the phone reconnects by itself whenever Mirror is open.
+
+`generated/` and `test/golden/` come from the Android repo (`ynsgnr/retink`): run its `scripts/sync-fork.sh` with this repo at `../crosspoint-reader`; never edit them by hand.
 
 ## Host tests and simulator
 ```bash

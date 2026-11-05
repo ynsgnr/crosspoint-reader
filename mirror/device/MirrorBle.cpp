@@ -19,6 +19,7 @@ namespace mirror {
 namespace {
 
 // Bumped whenever the security model changes; bonds made under an older one are deleted at the next start.
+// Same number as DeviceBond.SECURITY_EPOCH in the Android app and the protocol version: change them together.
 constexpr uint8_t kSecurityEpoch = 3;
 constexpr uint8_t kCccdFlags = BLE_ATT_F_READ | BLE_ATT_F_WRITE | BLE_ATT_F_READ_ENC | BLE_ATT_F_WRITE_ENC |
                                BLE_ATT_F_READ_AUTHEN | BLE_ATT_F_WRITE_AUTHEN;
