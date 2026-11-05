@@ -21,6 +21,8 @@ class MirrorBle {
  public:
   enum class StartResult { Ok, NoMemory, Failed };
 
+  ~MirrorBle() { stop(); }  // the stack must not call back into a destroyed instance
+
   // `keyboard` adds the HID keyboard to the same GATT server and bond. NoMemory when the heap cannot host the stack.
   StartResult start(const char* deviceName, const std::vector<uint8_t>& capabilities, bool keyboard);
   void stop();  // stops advertising, disconnects, deinitialises the stack

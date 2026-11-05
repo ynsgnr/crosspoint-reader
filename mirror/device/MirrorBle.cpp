@@ -317,8 +317,8 @@ void MirrorBle::onAuthComplete(const NimBLEConnInfo& link) {
   statusChanged_ = true;
   // Encrypted alone is not enough: a Just Works bond has no passkey and could be made by anyone nearby.
   if (!link.isEncrypted() || !link.isAuthenticated() || !link.isBonded()) {
-    NimBLEDevice::deleteBond(link.getIdAddress());  // the stack may already have stored the weak bond
-    pairingUntilMs_ = 0;                            // a failed attempt closes the window: retry on purpose
+    if (NimBLEDevice::isBonded(link.getIdAddress())) NimBLEDevice::deleteBond(link.getIdAddress());  // a weak bond
+    pairingUntilMs_ = 0;  // a failed attempt closes the window: retry on purpose
     if (server_) server_->disconnect(link.getConnHandle());
     return;
   }
