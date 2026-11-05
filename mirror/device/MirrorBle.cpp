@@ -35,8 +35,8 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
   void bind(MirrorBle* b) { b_ = b; }
   void onConnect(NimBLEServer* s, NimBLEConnInfo& info) override {
     if (!b_ || !b_->onConnected(info)) return;
-    // 15-30 ms interval so typed letters show quickly.
-    s->updateConnParams(info.getConnHandle(), 12, 24, 0, 400);
+    // 15-30 ms interval so typed letters show quickly; 5 s supervision timeout.
+    s->updateConnParams(info.getConnHandle(), 12, 24, 0, 500);
     s->setDataLen(info.getConnHandle(), 251);
   }
   void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
@@ -158,10 +158,16 @@ void MirrorBle::stop() {
   if (NimBLEDevice::getAdvertising()->isAdvertising()) NimBLEDevice::getAdvertising()->stop();
   if (server_) {
     for (auto handle : server_->getPeerDevices()) server_->disconnect(handle);
+    // Deinitialising while a link is still closing races the host task (a heap assert with two phones in Flowe's
+    // firmware): wait for every link to end, at most 3 s.
+    for (int waited = 0; server_->getConnectedCount() > 0 && waited < 150; ++waited) vTaskDelay(pdMS_TO_TICKS(20));
   }
   NimBLEDevice::deinit(true);  // frees server/advertising objects; bonds stay in NVS
   serverCallbacks->bind(nullptr);
   dataCallbacks->bind(nullptr);
+  LOG_INF("MIRROR", "stopped, heap free %u, largest block %u",
+          static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+          static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));  // watch for leaks per visit
   server_ = nullptr;
   eventChar_ = nullptr;
   hid_.reset();
