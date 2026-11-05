@@ -53,11 +53,9 @@ bool replay(const std::string& transcript, const TemplateRegistry& reg, const Re
         out.pop_front();
       }
     } else if (cmd == "btn") {
-      static const std::map<std::string, Button> kButtons = {{"up", Button::Up},
-                                                             {"down", Button::Down},
-                                                             {"left", Button::Left},
-                                                             {"right", Button::Right},
-                                                             {"confirm", Button::Confirm}};
+      static const std::map<std::string, Button> kButtons = {
+          {"up", Button::Up},           {"down", Button::Down}, {"left", Button::Left},    {"right", Button::Right},
+          {"confirm", Button::Confirm}, {"top", Button::Top},   {"bottom", Button::Bottom}};
       const auto b = kButtons.find(arg);
       if (b == kButtons.end())
         fail("line " + std::to_string(n) + ": unknown button " + arg);

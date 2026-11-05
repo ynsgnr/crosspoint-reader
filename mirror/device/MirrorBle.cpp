@@ -39,8 +39,8 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
     s->updateConnParams(info.getConnHandle(), 12, 24, 0, 500);
     s->setDataLen(info.getConnHandle(), 251);
   }
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
-    if (b_) b_->onDisconnected(reason);
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo& info, int reason) override {
+    if (b_) b_->onDisconnected(info.getConnHandle(), reason);
   }
   void onMTUChange(uint16_t mtu, NimBLEConnInfo&) override {
     if (b_) b_->onMtu(mtu);
@@ -195,7 +195,10 @@ bool MirrorBle::pairingOpen() const {
 void MirrorBle::service() {
   if (!running_) return;
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  const bool wanted = !linkUp_ && (pairingOpen() || NimBLEDevice::getNumBonds() > 0);
+  // While a phone is connected the device keeps advertising once the link is secure: the phone's companion-device
+  // scan (association, presence) only finds devices that advertise. A second central is refused in onConnected().
+  const bool bonded = NimBLEDevice::getNumBonds() > 0;
+  const bool wanted = linkUp_ ? (bonded && connected_) : (pairingOpen() || bonded);
   if (wanted && !adv->isAdvertising()) {
     bool ok = adv->start();
     if (!ok && keyboard_ && !minimalAdvertisement_) {
@@ -269,12 +272,17 @@ void MirrorBle::onWrite(const uint8_t* data, size_t len, const NimBLEConnInfo& l
 
 bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
   const bool bonded = NimBLEDevice::isBonded(link.getIdAddress());
-  LOG_INF("MIRROR", "central connected, bonded %d, window open %d", bonded, pairingOpen());
-  // An unknown phone may only connect while the user has the pairing window open.
-  if (!bonded && !pairingOpen()) {
+  LOG_INF("MIRROR", "central connected, id %s, bonded %d, bonds stored %d, window open %d",
+          link.getIdAddress().toString().c_str(), bonded, NimBLEDevice::getNumBonds(), pairingOpen());
+  const auto refuse = [&] {
     server_->disconnect(link.getConnHandle());
     return false;
-  }
+  };
+  if (linkUp_ && connHandle_.load() != link.getConnHandle()) return refuse();  // one phone at a time
+  // Nothing is readable or writable without an encrypted, authenticated link, and a new pairing needs the window, so
+  // a connection is accepted whenever a bond exists: a bonded phone that connects with a private address the stack
+  // cannot resolve yet must not be turned away.
+  if (!pairingOpen() && NimBLEDevice::getNumBonds() == 0) return refuse();
   linkUp_ = true;
   {
     std::lock_guard<std::mutex> g(mutex_);  // bytes of a previous link must not reach the new session
@@ -289,8 +297,9 @@ bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
   return true;
 }
 
-void MirrorBle::onDisconnected(int reason) {
+void MirrorBle::onDisconnected(uint16_t handle, int reason) {
   LOG_INF("MIRROR", "central disconnected, reason 0x%x", static_cast<unsigned>(reason));
+  if (handle != connHandle_.load()) return;  // a refused second link says nothing about the accepted one
   linkUp_ = false;
   connected_ = false;
   connHandle_ = kNoConnection;
@@ -328,7 +337,7 @@ void MirrorBle::onAuthComplete(const NimBLEConnInfo& link) {
     if (server_) server_->disconnect(link.getConnHandle());
     return;
   }
-  dropOtherBonds(link);  // one phone at a time: pairing a new one replaces the old
+  if (pairingOpen()) dropOtherBonds(link);  // one phone at a time: pairing a new one replaces the old
   pairingUntilMs_ = 0;
   if (!connected_.exchange(true)) epoch_++;  // a repeated authentication on the same link is not a new connection
 }

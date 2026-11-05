@@ -1,6 +1,7 @@
 #if defined(CROSSPOINT_MIRROR)
 // Unlock pad, pattern and chord settings. Keys are sent the moment they are pressed and never stored.
 #include <algorithm>
+#include <cstdlib>
 
 #include "device/MirrorActivity.h"
 #include "device/MirrorSettings.h"
@@ -15,8 +16,8 @@ constexpr int kPinKeys = 12, kPinRows = 4;
 const char* const kPinLabels[kPinKeys] = {"1", "2", "3", "4", "5", "6", "7", "8", "9", "Pattern", "0", "Enter"};
 enum PinKey { kPinToPattern = 9, kPinZero = 10, kPinEnter = 11 };
 
-// Pattern: dots 0-8 row by row; the Android pattern lock reads them as the digits "0".."8". Lifting the finger sends
-// Enter; "Done" does the same on boards without touch.
+// Pattern: dots 0-8 row by row; the Android pattern lock reads them as the digits "0".."8". The finger drags over the
+// dots; when it lifts, the dots it crossed are sent in order and then Enter. "Done" sends them on boards without touch.
 constexpr int kDots = 9, kPatternKeys = 11, kPatternRows = 4;
 const char* const kPatternLabels[kPatternKeys] = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "Done", "PIN"};
 enum PatternKey { kPatternDone = 9, kPatternToPin = 10 };
@@ -63,7 +64,15 @@ bool MirrorActivity::sendKey(uint8_t usage) {
 
 void MirrorActivity::openUnlock() {
   setScreen(Screen::Unlock);
-  if (phoneAllowsKeyboard()) ble_.wakePhone();  // before anything is typed
+  if (phoneAllowsKeyboard() && ble_.wakePhone()) {  // before anything is typed
+    // Enter brings up the PIN or pattern prompt on a locked phone, so the digits that follow have somewhere to go. Not
+    // sent when the phone says it is already unlocked: Enter would reach whatever app is open.
+    const auto& phone = session_->phoneStatus();
+    if (!phone || phone->locked) {
+      vTaskDelay(pdMS_TO_TICKS(400));  // the screen needs a moment to light up
+      sendKey(kEnterUsage);
+    }
+  }
   session_->sendCommand(mirror::gen::kCmdUnlockRequest);
 }
 
@@ -116,13 +125,17 @@ bool MirrorActivity::loopPattern() {
   int x = 0, y = 0;
   const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
   if (mappedInput.hasTouch()) {
-    // A finger sliding over the dots sends each one once. The path is not drawn: e-ink would keep it visible.
-    if (mappedInput.wasScreenTouchDown(x, y) || mappedInput.isScreenTouchHeld(x, y))
-      visitDot(cellAt(x, y, kDots, kPatternRows, w, h));
-    if (mappedInput.wasScreenTouchReleased()) finishPattern();
+    // A finger dragging over the dots collects them; they are sent when it lifts. The path is not drawn: e-ink would
+    // keep it visible.
+    if (mappedInput.isScreenTouchHeld(x, y) || mappedInput.wasScreenTouchDown(x, y)) {
+      trackPatternTouch(x, y);
+    } else if (patternTouching_ || mappedInput.wasScreenTouchReleased()) {
+      patternTouching_ = false;
+      finishPattern();
+    }
     if (mappedInput.wasScreenTapped(x, y)) {
       const int hit = cellAt(x, y, kPatternKeys, kPatternRows, w, h);
-      if (hit >= kDots) press = cursor_ = hit;  // dots are handled by the slide above
+      if (hit == kPatternToPin) press = cursor_ = hit;  // dots are only dragged; there is no Done key on touch boards
     }
   }
   if (press == kPatternToPin) {
@@ -131,21 +144,42 @@ bool MirrorActivity::loopPattern() {
   }
   if (press == kPatternDone)
     finishPattern();
-  else if (press >= 0)
+  else if (press >= 0 && press < kDots)
     visitDot(press);
   return redraw | (press >= 0) | leaveWhenUnlocked();
 }
 
-// Sends dot 0-8 unless it is already part of this pattern.
+// Adds dot 0-8 to the path unless it is already part of it.
 void MirrorActivity::visitDot(int dot) {
-  if (dot < 0 || dot >= kDots || (patternVisited_ & (1u << dot))) return;
-  patternVisited_ |= 1u << dot;
-  sendKey(mirror::digitUsage(dot));
+  if (dot < 0 || dot >= kDots || patternLen_ >= kDots) return;
+  for (uint8_t i = 0; i < patternLen_; ++i)
+    if (pattern_[i] == dot) return;
+  pattern_[patternLen_++] = static_cast<uint8_t>(dot);
 }
 
+// The touch samples can be far apart (the loop is slow while the panel refreshes), so the straight line from the last
+// sample is walked in small steps and every dot on it counts.
+void MirrorActivity::trackPatternTouch(int x, int y) {
+  const int w = renderer.getScreenWidth(), h = renderer.getScreenHeight();
+  const Cell cell = gridCell(0, kPatternRows, w, h);
+  const int fromX = patternTouching_ ? patternX_ : x, fromY = patternTouching_ ? patternY_ : y;
+  const int pixelStep = std::max(8, std::min(cell.w, cell.h) / 4);
+  const int steps = std::max(1, std::max(std::abs(x - fromX), std::abs(y - fromY)) / pixelStep);
+  for (int i = 1; i <= steps; ++i)
+    visitDot(cellAt(fromX + (x - fromX) * i / steps, fromY + (y - fromY) * i / steps, kDots, kPatternRows, w, h));
+  if (!patternTouching_) visitDot(cellAt(x, y, kDots, kPatternRows, w, h));
+  patternTouching_ = true;
+  patternX_ = x;
+  patternY_ = y;
+}
+
+// Sends the collected dots in order, then Enter.
 void MirrorActivity::finishPattern() {
-  if (patternVisited_) sendKey(kEnterUsage);
-  patternVisited_ = 0;
+  const uint8_t count = patternLen_;
+  patternLen_ = 0;
+  for (uint8_t i = 0; i < count; ++i)
+    if (!sendKey(mirror::digitUsage(pattern_[i]))) return;
+  if (count) sendKey(kEnterUsage);
 }
 
 // The chord rows as buttons: three modifiers, the key, Save.
@@ -203,6 +237,14 @@ void MirrorActivity::drawKeyGrid(const char* title, const char* const* labels, i
   for (int i = 0; i < count; ++i) {
     const Cell c = gridCell(i, rows, renderer.getScreenWidth(), renderer.getScreenHeight());
     const bool selected = showCursor && i == cursor_;
+    if (screen_ == Screen::Pattern) {
+      if (i == kPatternDone && !showCursor) continue;  // touch boards send the pattern when the finger lifts
+      if (i < kDots) {                                 // a dot, not a key: the pattern is dragged
+        const int r = selected ? 22 : 14;
+        renderer.fillRect(c.x + c.w / 2 - r, c.y + c.h / 2 - r, 2 * r, 2 * r, true);
+        continue;
+      }
+    }
     renderer.drawRect(c.x, c.y, c.w, c.h, selected ? 4 : 1, true);
     const int tw = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
     renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
@@ -210,7 +252,9 @@ void MirrorActivity::drawKeyGrid(const char* title, const char* const* labels, i
   }
   text.moveTo(renderer.getScreenHeight() - 3 * text.step());
   if (!note_.empty()) text.line(note_);
-  text.line(mappedInput.hasTouch() ? "Tap or slide  Home / Back: close" : "Arrows: move  Confirm: press  Back: close");
+  text.line(mappedInput.hasTouch()
+                ? (screen_ == Screen::Pattern ? "Drag over the dots  Home / Back: close" : "Tap  Home / Back: close")
+                : "Arrows: move  Confirm: press  Back: close");
 }
 
 void MirrorActivity::drawChordSettings() {

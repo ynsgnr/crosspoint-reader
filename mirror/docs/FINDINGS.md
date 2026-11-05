@@ -72,6 +72,5 @@ Everything below is implemented and compiles (both firmware images, host tests, 
 * The `CoverGridHomeUi` change was compiled, not seen on a device. Mirror's cover-grid icon reuses the Transfer icon.
 * App resource ids in `ChatAppSelectors` (from memory, unvalidated); Telegram needs a content-description parser.
 * `FLAG_SECURE` probe behaviour on real devices (needs API 34+; rate limited).
-* Dark mode (overlay, `getWindows()`, proximity guard) and the capture export were compiled and unit-tested only. Open questions: whether `BRIGHTNESS_OVERRIDE_OFF` dims
-  on the target phone, whether `getWindows()` returns the chat window while `packageNames` restricts events, and what `FLAG_SECURE` probing returns on API < 34.
+* Dark mode is brightness-only now (the overlay, timeout and proximity guard were removed after the overlay locked the phone up on hardware). The capture export was compiled and unit-tested only; `FLAG_SECURE` probing on API < 34 is open.
 * Repo process: `firmware-handoff` (four independent reviews, human acceptance, hardware testing) has not been done.

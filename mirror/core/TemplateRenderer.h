@@ -10,7 +10,8 @@
 
 namespace mirror {
 
-enum class Button { Up, Down, Left, Right, Confirm };
+// Top and Bottom are a long press: jump to the oldest or newest content.
+enum class Button { Up, Down, Left, Right, Confirm, Top, Bottom };
 
 struct DirtyRects {
   std::vector<Rect> rects;

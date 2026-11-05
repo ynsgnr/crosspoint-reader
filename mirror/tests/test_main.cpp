@@ -12,6 +12,7 @@
 #include "core/Frame.h"
 #include "core/RefreshPolicy.h"
 #include "core/Session.h"
+#include "core/Utf8.h"
 #include "sim/SimGfx.h"
 #include "sim/Transcript.h"
 #include "templates/chat/ChatRenderer.h"
@@ -352,6 +353,69 @@ static void testSessionButtons() {
         d.out[0].templateId == 1);
   CHECK(!d.session.onButton(Button::Left));
   CHECK(d.out.size() == 1);
+  // A long press jumps to the ends: one event frame each.
+  CHECK(d.session.onButton(Button::Top) && d.session.onButton(Button::Bottom) && d.out.size() == 3);
+  CHECK(d.out[1].has(gen::kFlagEvent) && d.out[2].has(gen::kFlagEvent));
+}
+
+// The draft box grows with the text and follows the cursor.
+static void testDraftGrowsAndFollowsCursor() {
+  sim::SimGfx g(480, 800);
+  const int width = 480 - 2 * 8 - g.textWidth(Font::Body, "> ") - 4;
+  // Ranges cover the text: a newline or a space separates lines, nothing else is skipped.
+  const std::string text = "ab cd\nef";
+  const auto small = chat::wrapRanges(g, Font::Body, text, width);
+  CHECK(small.size() == 2 && small[0].begin == 0 && small[0].end == 5 && small[1].begin == 6 && small[1].end == 8);
+  CHECK(chat::wrapRanges(g, Font::Body, "", width).size() == 1);
+  // Hard breaks never split a multi-byte character.
+  std::string wide;
+  for (int i = 0; i < 80; ++i) wide += "\xC3\xA9";  // é
+  for (const auto& l : chat::wrapRanges(g, Font::Body, wide, width)) {
+    CHECK(utf8::isBoundary(wide, l.begin) && utf8::isBoundary(wide, l.end));
+    CHECK(g.textWidth(Font::Body, wide.substr(l.begin, l.end - l.begin)) <= width);
+  }
+  std::string many;
+  for (int i = 0; i < 40; ++i) many += "word" + std::to_string(i) + " ";
+  const auto lines = chat::wrapRanges(g, Font::Body, many, width);
+  CHECK(lines.size() > 4);
+  for (size_t i = 0; i < lines.size(); ++i) {
+    CHECK(g.textWidth(Font::Body, many.substr(lines[i].begin, lines[i].end - lines[i].begin)) <= width);
+    if (i) CHECK(lines[i].begin >= lines[i - 1].end);
+  }
+
+  gen::chat::ChatState s;
+  s.messages = {{1, "Bob", "hi", 0, false}};
+  auto ruleY = [&](const gen::chat::ChatState& st) {  // the last rule is the draft box's
+    int y = -1;
+    for (const auto& it : chat::layout(g, st))
+      if (it.kind == chat::Item::Kind::Rule) y = it.r.y;
+    return y;
+  };
+  auto draftTexts = [&](const gen::chat::ChatState& st) {
+    std::vector<std::string> out;
+    const int top = ruleY(st);
+    for (const auto& it : chat::layout(g, st))
+      if (it.kind == chat::Item::Kind::Text && it.r.y > top && it.r.x > 8) out.push_back(it.text);
+    return out;
+  };
+  const int shortTop = ruleY(s);
+  s.draft = many;
+  s.draft_cursor = many.size();
+  CHECK(ruleY(s) < shortTop);                                       // taller box
+  CHECK(draftTexts(s).back().find("word39") != std::string::npos);  // cursor at the end: the end is shown
+  s.draft_cursor = 0;
+  CHECK(draftTexts(s).front().find("word0") == 0 || draftTexts(s).front().find("word0") != std::string::npos);
+  s.draft_cursor = many.find("word20");  // cursor in the middle: its line is visible
+  bool middle = false;
+  for (const auto& t : draftTexts(s)) middle |= t.find("word20") != std::string::npos;
+  CHECK(middle);
+  // Absurd drafts stay on screen and leave room for the header and a message.
+  s.draft = std::string(1000, 'x') + " " + many + many + many + many;
+  s.draft_cursor = s.draft.size();
+  for (const auto& it : chat::layout(g, s)) CHECK(it.r.y >= 0 && it.r.y + it.r.h <= 800 && it.r.x >= 0);
+  bool messageShown = false;  // the box leaves room for at least one message
+  for (const auto& it : chat::layout(g, s)) messageShown |= it.kind == chat::Item::Kind::Text && it.text == "hi";
+  CHECK(messageShown);
 }
 
 static void testChatOpSemantics() {
@@ -495,6 +559,7 @@ int main() {
   testSessionButtons();
   testChatOpSemantics();
   testWrapHardBreakAndAlignment();
+  testDraftGrowsAndFollowsCursor();
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;

@@ -66,6 +66,51 @@ std::vector<std::string> wrapText(const Gfx& g, Font f, const std::string& text,
   return lines;
 }
 
+std::vector<LineRange> wrapRanges(const Gfx& g, Font f, const std::string& text, int maxWidth) {
+  std::vector<LineRange> lines;
+  size_t para = 0;
+  while (true) {
+    const size_t nl = text.find('\n', para);
+    const size_t paraEnd = nl == std::string::npos ? text.size() : nl;
+    size_t lineStart = para, lineEnd = para, i = para;
+    bool placed = false;  // a word already sits on the current line
+    while (true) {
+      size_t wordEnd = text.find(' ', i);
+      if (wordEnd == std::string::npos || wordEnd > paraEnd) wordEnd = paraEnd;
+      if (g.textWidth(f, text.substr(lineStart, wordEnd - lineStart)) <= maxWidth) {
+        lineEnd = wordEnd;
+        placed = true;
+      } else {
+        if (placed) {
+          lines.push_back({lineStart, lineEnd});
+          lineStart = i;
+        }
+        // The word alone on a line; hard-break it while it is still too wide.
+        while (wordEnd > lineStart && g.textWidth(f, text.substr(lineStart, wordEnd - lineStart)) > maxWidth) {
+          size_t cut = lineStart, next = lineStart;
+          while (next < wordEnd) {
+            next += utf8::seqLen(static_cast<uint8_t>(text[next]));
+            if (g.textWidth(f, text.substr(lineStart, next - lineStart)) > maxWidth) break;
+            cut = next;
+          }
+          if (cut == lineStart)
+            cut = std::min(wordEnd, lineStart + utf8::seqLen(static_cast<uint8_t>(text[lineStart])));
+          lines.push_back({lineStart, cut});
+          lineStart = cut;
+        }
+        lineEnd = wordEnd;
+        placed = true;
+      }
+      if (wordEnd >= paraEnd) break;
+      i = wordEnd + 1;
+    }
+    lines.push_back({lineStart, lineEnd});
+    if (nl == std::string::npos) break;
+    para = nl + 1;
+  }
+  return lines;
+}
+
 std::string formatTime(uint32_t t) {
   char b[8];
   std::snprintf(b, sizeof b, "%02u:%02u", (t / 3600) % 24, (t / 60) % 60);
@@ -133,21 +178,27 @@ int layoutHeader(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetric
   return bottom;
 }
 
-// Rule, a fixed-height draft area showing the last lines, and the cursor. Fixed height: typing never moves the list.
-void layoutDraft(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics& m, int top, std::vector<Item>& out) {
+// Rule, the draft box and the cursor. The box shows `lines` from `first`: the end of the text, or the cursor's line
+// (with one line above it) when the cursor sits further up.
+void layoutDraft(const Gfx& g, const std::vector<LineRange>& lines, size_t first, size_t shown, size_t cursor,
+                 const std::string& draft, const LayoutMetrics& m, int top, std::vector<Item>& out) {
   const int W = g.width(), bodyH = g.lineHeight(Font::Body);
   out.push_back(shape(Item::Kind::Rule, {0, top, W, 2}));
   const int promptW = g.textWidth(Font::Body, "> ");
   const int textW = W - 2 * m.margin - promptW;
-  const auto lines = wrapText(g, Font::Body, s.draft, textW - 4);  // never empty: "" wraps to one empty line
-  const size_t first = lines.size() > static_cast<size_t>(m.draftLines) ? lines.size() - m.draftLines : 0;
   int y = top + 5;
-  for (size_t i = first; i < lines.size(); ++i, y += bodyH) {
+  for (size_t i = first; i < first + shown && i < lines.size(); ++i, y += bodyH) {
     if (i == first) out.push_back(textItem({m.margin, y, promptW, bodyH}, Font::Body, first == 0 ? ">" : kEllipsis));
-    out.push_back(textItem({m.margin + promptW, y, textW, bodyH}, Font::Body, lines[i]));
+    out.push_back(textItem({m.margin + promptW, y, textW, bodyH}, Font::Body,
+                           draft.substr(lines[i].begin, lines[i].end - lines[i].begin)));
   }
-  const int cursorX = m.margin + promptW + g.textWidth(Font::Body, lines.back()) + 2;
-  const int cursorY = top + 5 + static_cast<int>(lines.size() - 1 - first) * bodyH + 2;
+  // The cursor: on the last line that starts at or before its offset.
+  size_t ci = 0;
+  for (size_t i = 0; i < lines.size(); ++i)
+    if (lines[i].begin <= cursor) ci = i;
+  const size_t col = std::min(cursor, lines[ci].end) - lines[ci].begin;
+  const int cursorX = m.margin + promptW + g.textWidth(Font::Body, draft.substr(lines[ci].begin, col)) + 2;
+  const int cursorY = top + 5 + static_cast<int>(ci - first) * bodyH + 2;
   out.push_back(shape(Item::Kind::Bar, {std::min(cursorX, W - m.margin - 2), cursorY, 2, bodyH - 4}));
 }
 
@@ -203,8 +254,22 @@ void layoutBody(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics
 std::vector<Item> layout(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics& m) {
   std::vector<Item> items;
   const int headerBottom = layoutHeader(g, s, m, items);
-  const int draftTop = g.height() - m.draftLines * g.lineHeight(Font::Body) - 12;
-  layoutDraft(g, s, m, draftTop, items);
+  const int bodyH = g.lineHeight(Font::Body);
+  // The draft box grows with the text; it leaves room for one message (its meta line and one text line).
+  const int room = g.height() - headerBottom - 12 - (g.lineHeight(Font::Small) + bodyH + 14);
+  const size_t maxShown = static_cast<size_t>(std::max(m.draftLines, room / bodyH));
+  const int promptW = g.textWidth(Font::Body, "> ");
+  const auto lines = wrapRanges(g, Font::Body, s.draft, g.width() - 2 * m.margin - promptW - 4);
+  const size_t shown = std::clamp(lines.size(), static_cast<size_t>(m.draftLines), maxShown);
+  const size_t cursor = std::min<size_t>(s.draft_cursor, s.draft.size());
+  size_t cursorLine = 0;
+  for (size_t i = 0; i < lines.size(); ++i)
+    if (lines[i].begin <= cursor) cursorLine = i;
+  size_t first = lines.size() > shown ? lines.size() - shown : 0;
+  if (cursorLine < first) first = cursorLine > 0 ? cursorLine - 1 : 0;
+  first = std::min(first, lines.size() > shown ? lines.size() - shown : 0);
+  const int draftTop = g.height() - static_cast<int>(shown) * bodyH - 12;
+  layoutDraft(g, lines, first, shown, cursor, s.draft, m, draftTop, items);
   layoutBody(g, s, m, headerBottom + 4, draftTop - 4, items);
   return items;
 }

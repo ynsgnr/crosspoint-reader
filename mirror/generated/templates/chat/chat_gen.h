@@ -14,7 +14,7 @@
 namespace mirror::gen::chat {
 
 inline constexpr uint8_t kTemplateId = 1;
-inline constexpr uint8_t kSchemaVersion = 1;
+inline constexpr uint8_t kSchemaVersion = 2;
 inline constexpr uint32_t kMaxOpsPerDiff = 16;
 
 struct ChatMessage {
@@ -48,6 +48,7 @@ struct ChatState {
   std::string draft;
   uint32_t unread = 0;
   uint32_t scroll = 0;
+  uint32_t draft_cursor = 0;
 
   void encode(Writer& w) const {
     w.writeString(title, 64);
@@ -59,6 +60,7 @@ struct ChatState {
     w.writeString(draft, 1024);
     w.writeUvarint(unread);
     w.writeUvarint(scroll);
+    w.writeUvarint(draft_cursor);
   }
   static bool decode(Reader& r, ChatState& out) {
     out.title = r.readString(64);
@@ -76,6 +78,7 @@ struct ChatState {
     out.draft = r.readString(1024);
     out.unread = r.readUvarint();
     out.scroll = r.readUvarint();
+    out.draft_cursor = r.readUvarint();
     return r.ok();
   }
   bool operator==(const ChatState&) const = default;
@@ -190,7 +193,20 @@ struct OpSetUnread {
   bool operator==(const OpSetUnread&) const = default;
 };
 
-using Op = std::variant<OpAppendMessage, OpEditLast, OpDeleteLast, OpDraftEdit, OpDraftReplace, OpScroll, OpSetTitle, OpSetUnread>;
+struct OpSetDraftCursor {
+  uint32_t pos = 0;
+
+  void encode(Writer& w) const {
+    w.writeUvarint(pos);
+  }
+  static bool decode(Reader& r, OpSetDraftCursor& out) {
+    out.pos = r.readUvarint();
+    return r.ok();
+  }
+  bool operator==(const OpSetDraftCursor&) const = default;
+};
+
+using Op = std::variant<OpAppendMessage, OpEditLast, OpDeleteLast, OpDraftEdit, OpDraftReplace, OpScroll, OpSetTitle, OpSetUnread, OpSetDraftCursor>;
 
 inline void encodeOp(const Op& v, Writer& w) {
   std::visit([&w](const auto& x) {
@@ -203,6 +219,7 @@ inline void encodeOp(const Op& v, Writer& w) {
     if constexpr (std::is_same_v<T, OpScroll>) w.writeU8(6);
     if constexpr (std::is_same_v<T, OpSetTitle>) w.writeU8(7);
     if constexpr (std::is_same_v<T, OpSetUnread>) w.writeU8(8);
+    if constexpr (std::is_same_v<T, OpSetDraftCursor>) w.writeU8(9);
     x.encode(w);
   }, v);
 }
@@ -216,6 +233,7 @@ inline bool decodeOp(Reader& r, Op& out) {
     case 6: { OpScroll x; if (!OpScroll::decode(r, x)) return false; out = std::move(x); return true; }
     case 7: { OpSetTitle x; if (!OpSetTitle::decode(r, x)) return false; out = std::move(x); return true; }
     case 8: { OpSetUnread x; if (!OpSetUnread::decode(r, x)) return false; out = std::move(x); return true; }
+    case 9: { OpSetDraftCursor x; if (!OpSetDraftCursor::decode(r, x)) return false; out = std::move(x); return true; }
     default: r.fail(); return false;
   }
 }
@@ -246,13 +264,39 @@ struct EventScrollDown {
   bool operator==(const EventScrollDown&) const = default;
 };
 
-using Event = std::variant<EventScrollUp, EventScrollDown>;
+struct EventScrollTop {
+
+  void encode(Writer& w) const {
+    (void)w;
+  }
+  static bool decode(Reader& r, EventScrollTop& out) {
+    (void)r; (void)out;
+    return r.ok();
+  }
+  bool operator==(const EventScrollTop&) const = default;
+};
+
+struct EventScrollBottom {
+
+  void encode(Writer& w) const {
+    (void)w;
+  }
+  static bool decode(Reader& r, EventScrollBottom& out) {
+    (void)r; (void)out;
+    return r.ok();
+  }
+  bool operator==(const EventScrollBottom&) const = default;
+};
+
+using Event = std::variant<EventScrollUp, EventScrollDown, EventScrollTop, EventScrollBottom>;
 
 inline void encodeEvent(const Event& v, Writer& w) {
   std::visit([&w](const auto& x) {
     using T = std::decay_t<decltype(x)>;
     if constexpr (std::is_same_v<T, EventScrollUp>) w.writeU8(1);
     if constexpr (std::is_same_v<T, EventScrollDown>) w.writeU8(2);
+    if constexpr (std::is_same_v<T, EventScrollTop>) w.writeU8(3);
+    if constexpr (std::is_same_v<T, EventScrollBottom>) w.writeU8(4);
     x.encode(w);
   }, v);
 }
@@ -260,6 +304,8 @@ inline bool decodeEvent(Reader& r, Event& out) {
   switch (r.readU8()) {
     case 1: { EventScrollUp x; if (!EventScrollUp::decode(r, x)) return false; out = std::move(x); return true; }
     case 2: { EventScrollDown x; if (!EventScrollDown::decode(r, x)) return false; out = std::move(x); return true; }
+    case 3: { EventScrollTop x; if (!EventScrollTop::decode(r, x)) return false; out = std::move(x); return true; }
+    case 4: { EventScrollBottom x; if (!EventScrollBottom::decode(r, x)) return false; out = std::move(x); return true; }
     default: r.fail(); return false;
   }
 }

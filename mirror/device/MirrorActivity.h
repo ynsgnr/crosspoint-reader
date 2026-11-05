@@ -64,6 +64,7 @@ class MirrorActivity final : public Activity {
   bool sendKey(uint8_t usage);  // false when the keyboard is not ready
   void sendChordToPhone();
   void visitDot(int dot);
+  void trackPatternTouch(int x, int y);
   void finishPattern();
   bool moveCursor(int count);
   bool leaveWhenUnlocked();
@@ -86,9 +87,13 @@ class MirrorActivity final : public Activity {
   bool keyboardOn_ = false;  // opt-in, persisted
   mirror::Chord chord_ = mirror::kDefaultChord;
   mirror::Chord editChord_ = mirror::kDefaultChord;
-  int cursor_ = 0;               // selected key (unlock screens) or row (chord settings)
-  std::string note_;             // one line of feedback; never a typed digit
-  uint16_t patternVisited_ = 0;  // dots sent during this touch; cleared on release, never drawn
+  int cursor_ = 0;    // selected key (unlock screens) or row (chord settings)
+  std::string note_;  // one line of feedback; never a typed digit
+  // The dots a finger has crossed, in order. Kept only until the finger lifts (then sent, then cleared); never drawn.
+  uint8_t pattern_[9] = {};
+  uint8_t patternLen_ = 0;
+  bool patternTouching_ = false;
+  int patternX_ = 0, patternY_ = 0;  // last touch sample, to catch dots between two samples
   bool bondsForgotten_ = false;
   mirror::ButtonColumn buttons_;
   Action armed_ = Action::None;  // a destructive action waiting for its second tap

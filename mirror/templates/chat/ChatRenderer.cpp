@@ -13,6 +13,7 @@ bool ChatRenderer::onFull(const uint8_t* payload, size_t len) {
   Reader r(payload, len);
   ChatState s;
   if (!ChatState::decode(r, s) || !r.atEnd()) return false;
+  if (s.draft_cursor > s.draft.size() || !utf8::isBoundary(s.draft, s.draft_cursor)) return false;
   state_ = std::move(s);
   return true;
 }
@@ -39,10 +40,17 @@ bool ChatRenderer::applyOp(ChatState& s, const Op& op) {
     if (!utf8::isBoundary(s.draft, pos) || !utf8::isBoundary(s.draft, pos + del)) return false;
     if (s.draft.size() - del + d->ins.size() > kMaxDraftBytes) return false;
     s.draft.replace(pos, del, d->ins);
+    s.draft_cursor = pos + d->ins.size();  // typing moves the cursor to the end of what was inserted
     return true;
   }
   if (const auto* d = std::get_if<OpDraftReplace>(&op)) {
     s.draft = d->text;
+    s.draft_cursor = s.draft.size();
+    return true;
+  }
+  if (const auto* c = std::get_if<OpSetDraftCursor>(&op)) {
+    if (c->pos > s.draft.size() || !utf8::isBoundary(s.draft, c->pos)) return false;
+    s.draft_cursor = c->pos;
     return true;
   }
   if (const auto* sc = std::get_if<OpScroll>(&op)) {
@@ -137,6 +145,10 @@ bool ChatRenderer::onButton(Button b, std::vector<uint8_t>& eventPayload) {
     ev = EventScrollUp{1};
   else if (b == Button::Down)
     ev = EventScrollDown{1};
+  else if (b == Button::Top)
+    ev = EventScrollTop{};
+  else if (b == Button::Bottom)
+    ev = EventScrollBottom{};
   else
     return false;
   Writer w;
@@ -157,7 +169,7 @@ std::string ChatRenderer::dump() const {
     return o;
   };
   std::string out = "T:" + hex(s.title) + " U:" + std::to_string(s.unread) + " S:" + std::to_string(s.scroll) +
-                    " D:" + hex(s.draft) + " M:";
+                    " D:" + hex(s.draft) + " C:" + std::to_string(s.draft_cursor) + " M:";
   for (size_t i = 0; i < s.messages.size(); ++i) {
     const auto& m = s.messages[i];
     if (i) out += ";";

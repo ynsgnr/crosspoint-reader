@@ -12,6 +12,7 @@ namespace {
 constexpr char kDeviceName[] = "E-Ink Reader";  // generic on purpose: the advertisement identifies nothing
 constexpr uint32_t kPairingWindowMs = 120000;
 constexpr int kPartialsBeforeFull = 10;
+constexpr unsigned long kLongPressMs = 500;
 }  // namespace
 
 void MirrorActivity::resetSession() {
@@ -52,7 +53,8 @@ void MirrorActivity::startBle() {
 void MirrorActivity::setScreen(Screen s) {
   screen_ = s;
   cursor_ = 0;
-  patternVisited_ = 0;
+  patternLen_ = 0;
+  patternTouching_ = false;
   note_.clear();  // nothing typed is kept when a screen is left
   if (s == Screen::ChordSettings) editChord_ = chord_;
 }
@@ -225,9 +227,22 @@ bool MirrorActivity::loopChat() {
                   mappedInput.wasPressed(Btn::PageBack) || swipe == MappedInputManager::SwipeDir::Down;
   const bool down = mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::Right) ||
                     mappedInput.wasPressed(Btn::PageForward) || swipe == MappedInputManager::SwipeDir::Up;
+  // Holding a button jumps to the oldest or newest message; a short press scrolls one message.
+  const bool toTop = mappedInput.wasLongPressed(Btn::Up, kLongPressMs) ||
+                     mappedInput.wasLongPressed(Btn::Left, kLongPressMs) ||
+                     mappedInput.wasLongPressed(Btn::PageBack, kLongPressMs);
+  const bool toBottom = mappedInput.wasLongPressed(Btn::Down, kLongPressMs) ||
+                        mappedInput.wasLongPressed(Btn::Right, kLongPressMs) ||
+                        mappedInput.wasLongPressed(Btn::PageForward, kLongPressMs);
   // The event goes to the phone; the new scroll position comes back as a diff.
-  if (up) session_->onButton(mirror::Button::Up);
-  if (down) session_->onButton(mirror::Button::Down);
+  if (toTop)
+    session_->onButton(mirror::Button::Top);
+  else if (toBottom)
+    session_->onButton(mirror::Button::Bottom);
+  else if (up)
+    session_->onButton(mirror::Button::Up);
+  else if (down)
+    session_->onButton(mirror::Button::Down);
   return false;
 }
 

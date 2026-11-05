@@ -29,7 +29,9 @@ mismatch, scroll events) byte for byte through the real `Session` and `ChatRende
 
 ## Chat screen
 Title row (scroll marker `vN` when newer messages are below, unread badge), messages (incoming left with a thin bar, own right-aligned
-as one block with a thick bar), a fixed 3-line draft area with cursor. Up/Down (or the page buttons) scroll; Back leaves.
+as one block with a thick bar), and the draft box with its cursor. The box is 3 lines tall and grows with the text (up to most of the
+screen, leaving room for one message); when the draft is longer it shows the end, or the cursor's line when the cursor is further up.
+Up/Down (or the page buttons) scroll one message; holding a button jumps to the oldest or newest message; Back leaves.
 
 ## Security (protocol 3)
 * **Encrypted and authenticated only.** Every characteristic (mirror `data`, `event`, `caps`, and every HID/battery/device-info characteristic) has `*_ENC | *_AUTHEN`;
@@ -52,14 +54,14 @@ In the chat view the side buttons or a swipe scroll, and tapping the top of the 
 * Off by default. The **Keyboard** button switches the HID keyboard on or off (`MirrorSettings`) and forgets the paired phone, because the keyboard changes the GATT database the phone caches per bond.
   With it on, the same bond and the same pairing carry the mirror and the keyboard; there is no second pairing entry.
 * `MirrorHid`: HID-over-GATT keyboard + consumer + system-control report map, HID Information, Protocol Mode, Control Point, Battery, PnP. Built by hand (not `NimBLEHIDDevice`) so all of it needs the authenticated link.
-* **Unlock screens** (button **Unlock phone**): opening them wakes the phone first (a Shift tap, then the System Wake Up usage). The PIN pad (1-9, 0, Enter) and the pattern screen work by touch or with the arrow keys + Confirm.
-  Pattern: dots 0-8 row by row, each sent as its digit when the finger first touches it (Android's pattern lock reads the string "01258" for 0>1>2>5>8); lifting the finger sends Enter ("Done" does that on boards without touch).
-  Every key is sent and released at once; no PIN, pattern, length or buffer exists, and the pattern is not drawn (e-ink would keep it). The phone reports `locked`; the screen closes by itself when it unlocks.
+* **Unlock screens** (button **Unlock phone**): opening them wakes the phone (a Shift tap, then the System Wake Up usage) and, when the phone is locked or unknown, sends Enter so the PIN prompt is up. The PIN pad (1-9, 0, Enter) and the pattern screen work by touch or with the arrow keys + Confirm.
+  Pattern: dots 0-8 row by row (Android's pattern lock reads the string "01258" for 0>1>2>5>8). The finger drags over the dots; the dots it crossed (the straight line between two touch samples counts) are sent in order when it lifts, then Enter ("Done" does that on boards without touch).
+  PIN keys are sent and released at once. The few dots of a pattern live in memory only until the finger lifts; no PIN or pattern is stored, and the path is not drawn (e-ink would keep it). The phone reports `locked`; the screen closes by itself when it unlocks.
 * **Trigger chord**: **Start mirror on phone** (before the phone app runs) sends the chord over HID (default Ctrl+Alt+Shift+M). **Trigger chord** edits it (`core/Chord`: at least two modifiers, no Meta, letter or digit,
   common two-modifier shortcuts refused). The device announces it to the phone (`chord` command) so both sides agree.
 
 ## Status band and dark mode
-Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): `Phone dark mode: tap here`, or `Phone dark mode: N min  (tap here: off)`
+Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): `Phone dark mode: tap here`, or `Phone dark mode: on  (tap here: off)`
 while the phone reports it. Tapping the top of the screen (or Confirm) sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
 
 ## Refresh policy

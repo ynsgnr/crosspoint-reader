@@ -21,8 +21,16 @@ struct Item {
 struct LayoutMetrics {
   int margin = 8;
   int barWidth = 4;
-  int draftLines = 3;  // fixed: typing never moves the message list
+  int draftLines = 3;  // the draft box is at least this tall and grows with the text, up to most of the screen
 };
+
+// A wrapped line as a byte range of the original text (a trailing space or newline is not part of it).
+struct LineRange {
+  size_t begin = 0, end = 0;
+};
+
+// Like wrapText, but keeps where each line came from so a cursor offset can be placed. Never empty.
+std::vector<LineRange> wrapRanges(const Gfx& g, Font f, const std::string& text, int maxWidth);
 
 // Word wrap by pixel width. Hard-breaks words longer than the line. "\n" starts a new line.
 std::vector<std::string> wrapText(const Gfx& g, Font f, const std::string& text, int maxWidth);
