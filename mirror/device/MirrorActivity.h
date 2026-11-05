@@ -1,7 +1,7 @@
 #pragma once
 #if defined(CROSSPOINT_MIRROR)
 // Mirror screen: BLE advertising and the connection exist only while it is open.
-// MirrorActivity.cpp: lifecycle, input loop, status and chat drawing. MirrorScreens.cpp: unlock pad, pattern, chord
+// MirrorActivity.cpp: lifecycle, input loop, status and chat drawing. MirrorScreens.cpp: unlock pad, chord
 // settings.
 #include <memory>
 #include <mutex>
@@ -28,7 +28,7 @@ class MirrorActivity final : public Activity {
   bool preventAutoSleep() override { return ble_.connected() || ble_.pairingOpen(); }
 
  private:
-  enum class Screen { Status, Unlock, Pattern, ChordSettings };
+  enum class Screen { Status, Unlock, ChordSettings };
   enum class Action { None, PairPhone, ForgetPhone, ToggleKeyboard, StartMirror, Unlock, ChordSettings };
 
   // State of the current link, cleared whenever the connection changes.
@@ -56,7 +56,6 @@ class MirrorActivity final : public Activity {
 
   // MirrorScreens.cpp; the loops return true when the screen needs a redraw and run with mutex_ held.
   bool loopUnlock();
-  bool loopPattern();
   bool loopChordSettings();
   void buildChordButtons();
   int chordButtonsTop() const;
@@ -64,9 +63,6 @@ class MirrorActivity final : public Activity {
   void sendDueEnter();          // the Enter that follows the wake, once the screen has had time to light up
   bool sendKey(uint8_t usage);  // false when the keyboard is not ready
   void sendChordToPhone();
-  void visitDot(int dot);
-  void trackPatternTouch(int x, int y);
-  void finishPattern();
   bool moveCursor(int count);
   bool leaveWhenUnlocked();
   void drawKeyGrid(const char* title, const char* const* labels, int count, int rows);
@@ -90,11 +86,6 @@ class MirrorActivity final : public Activity {
   mirror::Chord editChord_ = mirror::kDefaultChord;
   int cursor_ = 0;    // selected key (unlock screens) or row (chord settings)
   std::string note_;  // one line of feedback; never a typed digit
-  // The dots a finger has crossed, in order. Kept only until the finger lifts (then sent, then cleared); never drawn.
-  uint8_t pattern_[9] = {};
-  uint8_t patternLen_ = 0;
-  bool patternTouching_ = false;
-  int patternX_ = 0, patternY_ = 0;  // last touch sample, to catch dots between two samples
   bool bondsForgotten_ = false;
   uint32_t enterDueMs_ = 0;  // when to send Enter after waking the phone (0 = none pending)
   mirror::ButtonColumn buttons_;

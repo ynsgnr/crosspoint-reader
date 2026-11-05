@@ -6,7 +6,7 @@ renders the template the phone sends. Security, pairing, the optional keyboard a
 ```
 core/        Wire, Envelope, Session (ack/resync/errors), TemplateRenderer + registry, RefreshPolicy, Gfx   (portable)
 templates/   chat/: ChatRenderer + ChatLayout                                                               (portable)
-device/      MirrorActivity (+ MirrorScreens: unlock, pattern, chord), MirrorBle, MirrorHid, MirrorSettings, GfxAdapter (firmware only)
+device/      MirrorActivity (+ MirrorScreens: unlock, chord), MirrorBle, MirrorHid, MirrorSettings, GfxAdapter (firmware only)
 generated/   written by retink/scripts/sync-fork.sh; MANIFEST.sha256 detects hand edits
 sim/ tests/  host simulator (PNG frames) and tests; test/golden/ = transcripts from the Kotlin tests
 ```
@@ -58,9 +58,8 @@ In the chat view the side buttons or a swipe scroll, and tapping the top of the 
 * Off by default. The **Keyboard** button switches the HID keyboard on or off (`MirrorSettings`) and forgets the paired phone, because the keyboard changes the GATT database the phone caches per bond.
   With it on, the same bond and the same pairing carry the mirror and the keyboard; there is no second pairing entry.
 * `MirrorHid`: HID-over-GATT keyboard + consumer + system-control report map, HID Information, Protocol Mode, Control Point, Battery, PnP. Built by hand (not `NimBLEHIDDevice`) so all of it needs the authenticated link.
-* **Unlock screens** (button **Unlock phone**): opening them wakes the phone (a Shift tap, then the System Wake Up usage) and, when the phone is locked or unknown, sends Enter so the PIN prompt is up. The PIN pad (1-9, 0, Enter) and the pattern screen work by touch or with the arrow keys + Confirm.
-  Pattern: dots 0-8 row by row (Android's pattern lock reads the string "01258" for 0>1>2>5>8). The finger drags over the dots; the dots it crossed (the straight line between two touch samples counts) are sent in order when it lifts, then Enter ("Done" does that on boards without touch).
-  PIN keys are sent and released at once. The few dots of a pattern live in memory only until the finger lifts; no PIN or pattern is stored, and the path is not drawn (e-ink would keep it). The phone reports `locked`; the screen closes by itself when it unlocks.
+* **Unlock screens** (button **Unlock phone**): opening them wakes the phone (a Shift tap, then the System Wake Up usage) and, when the phone is locked or unknown, sends Enter so the PIN prompt is up. The PIN pad (1-9, 0, Enter) works by touch or with the arrow keys + Confirm. Pattern locks are not supported.
+  PIN keys are sent and released at once and never stored. The phone reports `locked`; the screen closes by itself when it unlocks.
 * **Trigger chord**: **Start mirror on phone** (before the phone app runs) sends the chord over HID (default Ctrl+Alt+Shift+M). **Trigger chord** edits it (`core/Chord`: at least two modifiers, no Meta, letter or digit,
   common two-modifier shortcuts refused). The device announces it to the phone (`chord` command) so both sides agree.
 

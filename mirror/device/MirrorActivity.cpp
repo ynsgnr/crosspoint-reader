@@ -58,8 +58,6 @@ void MirrorActivity::setScreen(Screen s) {
   cursor_ = 0;
   armed_ = Action::None;  // a second tap must follow the first on the same screen
   enterDueMs_ = 0;
-  patternLen_ = 0;
-  patternTouching_ = false;
   note_.clear();  // nothing typed is kept when a screen is left
   if (s == Screen::ChordSettings) editChord_ = chord_;
 }
@@ -98,9 +96,6 @@ void MirrorActivity::loop() {
     case Screen::Unlock:
       redraw |= loopUnlock();
       break;
-    case Screen::Pattern:
-      redraw |= loopPattern();
-      break;
     case Screen::ChordSettings:
       redraw |= loopChordSettings();
       break;
@@ -113,7 +108,7 @@ void MirrorActivity::onLinkChanged() {
   link_ = Link{ble_.connected(), ble_.connectionEpoch()};
   armed_ = Action::None;
   resetSession();
-  if (link_.connected || (screen_ != Screen::Unlock && screen_ != Screen::Pattern)) return;
+  if (link_.connected || screen_ != Screen::Unlock) return;
   std::lock_guard<std::mutex> lock(mutex_);
   setScreen(Screen::Status);
 }
