@@ -27,7 +27,6 @@ bool linkSecure(const NimBLEConnInfo& link) { return link.isEncrypted() && link.
 
 // Unmeasured estimate of the block the NimBLE host needs; tighten after measuring on hardware.
 constexpr size_t kMinLargestBlock = 24 * 1024;
-constexpr uint32_t kSecurityRequestDelayMs = 1500;
 
 // The callback objects outlive one MirrorBle (the stack keeps them), so they point at the current instance and are
 // re-bound on every start(); a stale reference to a destroyed instance aborted the firmware on the second visit.
@@ -35,10 +34,7 @@ class ServerCallbacks final : public NimBLEServerCallbacks {
  public:
   void bind(MirrorBle* b) { b_ = b; }
   void onConnect(NimBLEServer* s, NimBLEConnInfo& info) override {
-    if (!b_ || !b_->onConnected(info)) return;
-    // 15-30 ms interval so typed letters show quickly; 5 s supervision timeout.
-    s->updateConnParams(info.getConnHandle(), 12, 24, 0, 500);
-    s->setDataLen(info.getConnHandle(), 251);
+    if (b_) b_->onConnected(info);  // connection tuning waits for a secure link (see service())
   }
   void onDisconnect(NimBLEServer*, NimBLEConnInfo& info, int reason) override {
     if (b_) b_->onDisconnected(info.getConnHandle(), reason);
@@ -174,7 +170,7 @@ void MirrorBle::stop() {
   eventChar_ = nullptr;
   hid_.reset();
   linkUp_ = false;
-  securityDueMs_ = 0;
+  tunePending_ = false;
   advConnectable_ = true;
   advertisingState_ = -1;
   connected_ = false;
@@ -226,16 +222,13 @@ void MirrorBle::service() {
     advertisingState_ = -1;
     LOG_INF("MIRROR", "advertising off");
   }
-  // A bonded phone usually encrypts the link itself right after connecting; asking at the same moment collides with it.
-  // So the request waits, and is only sent when the link is still not secure.
-  const uint32_t due = securityDueMs_.load();
-  if (due != 0 && linkUp_ && !connected_ && static_cast<int32_t>(millis() - due) >= 0) {
-    securityDueMs_ = 0;
+  // Connection parameters and data length change with link-layer procedures that must not overlap the phone starting
+  // encryption (a MIC failure ended reconnects on hardware), so they are requested once the link is secure.
+  if (tunePending_.exchange(false) && server_ && connected_) {
     const uint16_t handle = connHandle_.load();
-    if (server_ && !linkSecure(server_->getPeerInfoByHandle(handle))) {
-      LOG_INF("MIRROR", "link still not secure: asking the phone to pair or encrypt");
-      NimBLEDevice::startSecurity(handle);
-    }
+    server_->updateConnParams(handle, 12, 24, 0,
+                              500);  // 15-30 ms so typed letters show quickly; 5 s supervision timeout
+    server_->setDataLen(handle, 251);
   }
   if (pairingUntilMs_ != 0 && !pairingOpen()) {
     LOG_INF("MIRROR", "pairing window closed");
@@ -311,8 +304,7 @@ bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
   }
   connHandle_ = link.getConnHandle();
   mtu_ = 23;
-  // If the phone does not secure the link by itself soon, ask it to (see service()).
-  securityDueMs_ = millis() + kSecurityRequestDelayMs;
+  // The phone secures the link itself: it starts encryption for a bonded device and pairing when its app asks for it.
   statusChanged_ = true;
   return true;
 }
@@ -322,7 +314,7 @@ void MirrorBle::onDisconnected(uint16_t handle, int reason) {
   if (handle != connHandle_.load()) return;  // a refused second link says nothing about the accepted one
   linkUp_ = false;
   connected_ = false;
-  securityDueMs_ = 0;
+  tunePending_ = false;
   connHandle_ = kNoConnection;
   if (hid_) hid_->onLinkDown();
   passkey_ = -1;
@@ -353,14 +345,19 @@ void MirrorBle::onAuthComplete(const NimBLEConnInfo& link) {
   statusChanged_ = true;
   // Encrypted alone is not enough: a Just Works bond has no passkey and could be made by anyone nearby.
   if (!link.isEncrypted() || !link.isAuthenticated() || !link.isBonded()) {
-    if (NimBLEDevice::isBonded(link.getIdAddress())) NimBLEDevice::deleteBond(link.getIdAddress());  // a weak bond
-    pairingUntilMs_ = 0;  // a failed attempt closes the window: retry on purpose
+    // Only a pairing in progress loses its bond and closes the window. An existing bond survives a failed encryption
+    // (a radio glitch, a phone that restarted its stack): deleting it forced a full re-pair on hardware.
+    if (pairingOpen()) {
+      if (NimBLEDevice::isBonded(link.getIdAddress())) NimBLEDevice::deleteBond(link.getIdAddress());  // a weak bond
+      pairingUntilMs_ = 0;  // a failed attempt closes the window: retry on purpose
+    }
     if (server_) server_->disconnect(link.getConnHandle());
     return;
   }
   if (pairingOpen()) dropOtherBonds(link);  // one phone at a time: pairing a new one replaces the old
   pairingUntilMs_ = 0;
   if (!connected_.exchange(true)) epoch_++;  // a repeated authentication on the same link is not a new connection
+  tunePending_ = true;
 }
 
 void MirrorBle::dropOtherBonds(const NimBLEConnInfo& keep) {
