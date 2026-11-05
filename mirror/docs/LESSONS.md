@@ -14,7 +14,6 @@ Each line: what happened, what to do. Details are in `FINDINGS.md`.
 * **Wait for every link to close before `deinit`,** and stop the stack in the owner's destructor.
 * **A connected phone cannot see a device that stops advertising.** Keep a non-connectable advertisement while linked so the companion scan and presence detection still work. A connectable one invites a second connection that is refused and retried forever.
 * **Disconnect events of refused links must not touch the accepted link's state:** key them by connection handle.
-
 * **A settings read that fails must not wipe state.** The security-epoch check deleted every bond whenever NVS could not be read; only a confirmed stale value may delete, and the new epoch is recorded after the delete.
 * **Never return a fixed passkey to refuse a pairing** (the stack pairs with it before the disconnect lands), and let a pairing that started inside the window finish after it closes.
 * **Never block the activity loop while it holds the lock** (waits, key taps with delays): defer with a deadline and let the loop send it.
@@ -22,14 +21,14 @@ Each line: what happened, what to do. Details are in `FINDINGS.md`.
 ## Android
 * **Reconnect with `autoConnect`** after the first drop; polling with backoff misses the moment the device returns. A companion presence service starts the foreground service when the device appears.
 * **Status text that is redrawn is easy to miss:** show progress and errors as a toast too.
+* **A cleanup that triggers a state change must not overwrite the state that caused it** (NEEDS_REPAIR was erased by the disconnect it started).
 * **A dim overlay over the whole screen can lock the phone up;** change only the system brightness and end it when the phone locks.
 
 ## Parsing chat apps
 * **Prefer a structural signal over a position fraction.** WhatsApp's delivery tick marks outgoing rows; wide bubbles start left of any cutoff.
 * **Clock times need a day.** Read the date separators ("Today", weekday, date); the rows above the first separator belong to the day before it.
 * **Capture first, then fix:** export a capture from the phone and run the real parser on it (`parserDump`) before changing a parser.
-
-* **Read failures before treating a state as final:** a cleanup that triggers a state change must not overwrite the state that caused it (NEEDS_REPAIR was erased by the disconnect it started).
+* **A cleanup that triggers a state change must not overwrite the state that caused it** (NEEDS_REPAIR was erased by the disconnect it started). Read failures before treating a state as final:** a cleanup that triggers a state change must not overwrite the state that caused it (NEEDS_REPAIR was erased by the disconnect it started).
 * **Mirror only the message composer, never "any editable field":** search boxes and login fields are editable too.
 
 ## Debugging and process
