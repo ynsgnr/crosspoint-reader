@@ -28,12 +28,21 @@ void setKeyboardEnabled(bool on) {
   if (n.ok) nvs_set_u8(n.h, "kbd", on ? 1 : 0), nvs_commit(n.h);
 }
 
-bool securityEpochCurrent(uint8_t epoch) {
-  Nvs n(NVS_READWRITE);
+bool securityEpochStale(uint8_t epoch) {
+  nvs_handle_t h = 0;
+  const esp_err_t opened = nvs_open("mirror", NVS_READONLY, &h);
+  if (opened == ESP_ERR_NVS_NOT_FOUND) return true;  // never recorded
+  if (opened != ESP_OK) return false;                // unreadable: do not touch the bonds
   uint8_t stored = 0;
-  const bool current = n.ok && nvs_get_u8(n.h, "sec_epoch", &stored) == ESP_OK && stored == epoch;
-  if (n.ok && !current) nvs_set_u8(n.h, "sec_epoch", epoch), nvs_commit(n.h);
-  return current;
+  const esp_err_t got = nvs_get_u8(h, "sec_epoch", &stored);
+  nvs_close(h);
+  if (got == ESP_ERR_NVS_NOT_FOUND) return true;
+  return got == ESP_OK && stored != epoch;
+}
+
+void commitSecurityEpoch(uint8_t epoch) {
+  Nvs n(NVS_READWRITE);
+  if (n.ok) nvs_set_u8(n.h, "sec_epoch", epoch), nvs_commit(n.h);
 }
 
 Chord chord() {

@@ -10,6 +10,7 @@
 namespace {
 constexpr int kGridCols = 3;
 constexpr uint8_t kEnterUsage = 0x28;
+constexpr uint32_t kEnterAfterWakeMs = 400;
 
 // PIN pad. The phone is woken when the screen opens, so there is no Wake key.
 constexpr int kPinKeys = 12, kPinRows = 4;
@@ -66,14 +67,18 @@ void MirrorActivity::openUnlock() {
   setScreen(Screen::Unlock);
   if (phoneAllowsKeyboard() && ble_.wakePhone()) {  // before anything is typed
     // Enter brings up the PIN or pattern prompt on a locked phone, so the digits that follow have somewhere to go. Not
-    // sent when the phone says it is already unlocked: Enter would reach whatever app is open.
+    // sent when the phone says it is already unlocked: Enter would reach whatever app is open. It waits a moment for
+    // the screen to light up, without blocking the loop (see sendDueEnter).
     const auto& phone = session_->phoneStatus();
-    if (!phone || phone->locked) {
-      vTaskDelay(pdMS_TO_TICKS(400));  // the screen needs a moment to light up
-      sendKey(kEnterUsage);
-    }
+    if (!phone || phone->locked) enterDueMs_ = millis() + kEnterAfterWakeMs;
   }
   session_->sendCommand(mirror::gen::kCmdUnlockRequest);
+}
+
+void MirrorActivity::sendDueEnter() {
+  if (enterDueMs_ == 0 || static_cast<int32_t>(millis() - enterDueMs_) < 0) return;
+  enterDueMs_ = 0;
+  if (screen_ == Screen::Unlock) sendKey(kEnterUsage);
 }
 
 // Moves the cursor with the arrow keys; true when it moved.

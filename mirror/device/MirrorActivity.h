@@ -61,6 +61,7 @@ class MirrorActivity final : public Activity {
   void buildChordButtons();
   int chordButtonsTop() const;
   void openUnlock();
+  void sendDueEnter();          // the Enter that follows the wake, once the screen has had time to light up
   bool sendKey(uint8_t usage);  // false when the keyboard is not ready
   void sendChordToPhone();
   void visitDot(int dot);
@@ -95,6 +96,7 @@ class MirrorActivity final : public Activity {
   bool patternTouching_ = false;
   int patternX_ = 0, patternY_ = 0;  // last touch sample, to catch dots between two samples
   bool bondsForgotten_ = false;
+  uint32_t enterDueMs_ = 0;  // when to send Enter after waking the phone (0 = none pending)
   mirror::ButtonColumn buttons_;
   Action armed_ = Action::None;  // a destructive action waiting for its second tap
 

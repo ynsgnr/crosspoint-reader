@@ -66,8 +66,11 @@ class MirrorBle {
 
  private:
   void dropOtherBonds(const NimBLEConnInfo& keep);
+  void refreshBondCount();
 
-  bool running_ = false;
+  std::atomic<bool> running_{false};
+  std::atomic<int> bondCount_{0};            // see bondCount()
+  std::atomic<bool> pairingLatched_{false};  // a passkey was issued: the pairing may finish after the window closes
   std::atomic<uint32_t> pairingUntilMs_{0};
   bool keyboard_ = false;
   bool minimalAdvertisement_ = false;      // fell back to the smallest advertisement after a failed start

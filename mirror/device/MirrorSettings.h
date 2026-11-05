@@ -9,8 +9,11 @@ namespace mirror::settings {
 bool keyboardEnabled();
 void setKeyboardEnabled(bool on);
 
-// True when bonds were made under security model `epoch`; otherwise records it and returns false.
-bool securityEpochCurrent(uint8_t epoch);
+// True when the stored security model is missing or differs from `epoch`: bonds made under an older model must go.
+// An NVS that cannot be read says nothing, so it is not stale (the bonds stay).
+bool securityEpochStale(uint8_t epoch);
+// Records `epoch` (after stale bonds were deleted).
+void commitSecurityEpoch(uint8_t epoch);
 
 // Trigger chord; an invalid stored value falls back to the default.
 Chord chord();

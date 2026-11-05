@@ -29,6 +29,9 @@ void MirrorActivity::onEnter() {
   keyboardOn_ = mirror::settings::keyboardEnabled();
   chord_ = mirror::settings::chord();
   screen_ = drawnScreen_ = Screen::Status;
+  armed_ = Action::None;
+  bondsForgotten_ = false;
+  link_ = Link{};
   // The page turner's radio is already off: it stops before every screen change and stays off outside readers.
   resetSession();
   startBle();
@@ -53,6 +56,8 @@ void MirrorActivity::startBle() {
 void MirrorActivity::setScreen(Screen s) {
   screen_ = s;
   cursor_ = 0;
+  armed_ = Action::None;  // a second tap must follow the first on the same screen
+  enterDueMs_ = 0;
   patternLen_ = 0;
   patternTouching_ = false;
   note_.clear();  // nothing typed is kept when a screen is left
@@ -85,6 +90,7 @@ void MirrorActivity::loop() {
   if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
 
   announceKeyboardToPhone();
+  sendDueEnter();
   switch (screen_) {
     case Screen::Status:
       redraw |= loopStatus();
@@ -105,6 +111,7 @@ void MirrorActivity::loop() {
 // Every connection starts a new sequence space; a disconnect returns to the waiting screen.
 void MirrorActivity::onLinkChanged() {
   link_ = Link{ble_.connected(), ble_.connectionEpoch()};
+  armed_ = Action::None;
   resetSession();
   if (link_.connected || (screen_ != Screen::Unlock && screen_ != Screen::Pattern)) return;
   std::lock_guard<std::mutex> lock(mutex_);
@@ -189,6 +196,7 @@ void MirrorActivity::runAction(Action action) {
 
 bool MirrorActivity::loopStatus() {
   if (session_->active()) return loopChat();
+  if (ble_.pairingPasskey() >= 0) return false;  // the code is on screen instead of the buttons: nothing to press
   using Btn = MappedInputManager::Button;
   buildActions();
   const int top = renderer.getScreenHeight() / 2;
@@ -207,8 +215,9 @@ bool MirrorActivity::loopStatus() {
     if (mappedInput.wasReleased(Btn::Confirm)) press = cursor_;
   }
   if (press >= 0) {
+    const Screen before = screen_;
     runAction(static_cast<Action>(buttons_.id(press)));
-    cursor_ = std::min(press, std::max(0, buttons_.count() - 1));
+    if (screen_ == before) cursor_ = std::min(press, std::max(0, buttons_.count() - 1));  // a new screen starts at 0
     redraw = true;
   }
   return redraw;
@@ -299,10 +308,11 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
   mirror::TemplateRenderer* t = session_ ? session_->active() : nullptr;
   if (!t) {
     drawStatus();
-    const bool first = !statusShown_;
+    const bool full = !statusShown_ || ++subScreenPartials_ >= kPartialsBeforeFull;  // clears the cursor's ghosting too
     statusShown_ = true;
     forceFull_ = true;
-    return first ? mirror::RefreshKind::Full : mirror::RefreshKind::Partial;
+    if (full) subScreenPartials_ = 0;
+    return full ? mirror::RefreshKind::Full : mirror::RefreshKind::Partial;
   }
   statusShown_ = false;
   forceFull_ |= session_->takeTemplateSwitched();

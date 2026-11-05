@@ -79,7 +79,8 @@ void configureSecurity() {
   NimBLEDevice::setSecurityInitKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
   NimBLEDevice::setSecurityRespKey(BLE_SM_PAIR_KEY_DIST_ENC | BLE_SM_PAIR_KEY_DIST_ID);
   ble_gatts_set_clt_cfg_perm_flags(kCccdFlags);  // subscribing needs the same authenticated link as reading
-  if (!settings::securityEpochCurrent(kSecurityEpoch)) NimBLEDevice::deleteAllBonds();  // old model: pair again
+  if (settings::securityEpochStale(kSecurityEpoch)) NimBLEDevice::deleteAllBonds();  // old model: pair again
+  settings::commitSecurityEpoch(kSecurityEpoch);  // only after the old bonds are gone
 }
 
 }  // namespace
@@ -122,6 +123,8 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   if (!server_->start()) {
     LOG_ERR("MIRROR", "GATT server failed to start (keyboard %d)", keyboard);
     NimBLEDevice::deinit(true);
+    serverCallbacks->bind(nullptr);
+    dataCallbacks->bind(nullptr);
     server_ = nullptr;
     eventChar_ = nullptr;
     hid_.reset();
@@ -142,6 +145,7 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
     std::lock_guard<std::mutex> g(mutex_);
     inbound_.reserve(kInboundCap);  // grown here, not on the NimBLE host task
   }
+  refreshBondCount();
   running_ = true;
   connected_ = false;
   statusChanged_ = true;
@@ -172,6 +176,9 @@ void MirrorBle::stop() {
   hid_.reset();
   linkUp_ = false;
   tunePending_ = false;
+  pairingLatched_ = false;
+  connHandle_ = kNoConnection;
+  mtu_ = 23;
   advConnectable_ = true;
   advertisingState_ = -1;
   connected_ = false;
@@ -264,9 +271,14 @@ bool MirrorBle::send(const std::vector<uint8_t>& frame) {
   return true;
 }
 
-int MirrorBle::bondCount() const { return running_ ? NimBLEDevice::getNumBonds() : 0; }
+// Cached: the render task asks, and must not read the bond store while the loop task starts or stops the stack.
+int MirrorBle::bondCount() const { return running_ ? bondCount_.load() : 0; }
+void MirrorBle::refreshBondCount() { bondCount_ = NimBLEDevice::getNumBonds(); }
+
 void MirrorBle::forgetBonds() {
+  if (linkUp_) return;  // deleting a bond ends the link it belongs to, in the middle of a handshake
   NimBLEDevice::deleteAllBonds();
+  refreshBondCount();
   statusChanged_ = true;
 }
 
@@ -305,6 +317,7 @@ bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
   }
   connHandle_ = link.getConnHandle();
   mtu_ = 23;
+  passkey_ = -1;
   // The phone secures the link itself: it starts encryption for a bonded device and pairing when its app asks for it.
   statusChanged_ = true;
   return true;
@@ -317,6 +330,7 @@ void MirrorBle::onDisconnected(uint16_t handle, int reason) {
   connected_ = false;
   tunePending_ = false;
   connHandle_ = kNoConnection;
+  pairingLatched_ = false;
   if (hid_) hid_->onLinkDown();
   passkey_ = -1;
   statusChanged_ = true;
@@ -330,9 +344,10 @@ uint32_t MirrorBle::onPasskeyDisplay() {
   if (!pairingOpen()) {
     LOG_INF("MIRROR", "passkey requested outside the pairing window: refused");
     if (server_) server_->disconnect(connHandle_.load());
-    return 0;
+    return esp_random() % 1000000;  // never a fixed code: the stack would pair with it before the disconnect lands
   }
   LOG_INF("MIRROR", "passkey requested, showing it");
+  pairingLatched_ = true;  // a pairing that started inside the window may finish after it closes
   const uint32_t code = esp_random() % 1000000;
   passkey_ = static_cast<int32_t>(code);
   statusChanged_ = true;
@@ -342,20 +357,28 @@ uint32_t MirrorBle::onPasskeyDisplay() {
 void MirrorBle::onAuthComplete(const NimBLEConnInfo& link) {
   LOG_INF("MIRROR", "auth: encrypted %d, authenticated %d, bonded %d", link.isEncrypted(), link.isAuthenticated(),
           link.isBonded());
+  if (link.getConnHandle() != connHandle_.load()) {  // a refused second link must not touch the accepted one's bond
+    if (server_) server_->disconnect(link.getConnHandle());
+    return;
+  }
   passkey_ = -1;
   statusChanged_ = true;
+  // A pairing in progress: the window is open, or it was when the passkey was issued (typing can outlast the window).
+  const bool pairing = pairingOpen() || pairingLatched_.exchange(false);
   // Encrypted alone is not enough: a Just Works bond has no passkey and could be made by anyone nearby.
   if (!link.isEncrypted() || !link.isAuthenticated() || !link.isBonded()) {
     // Only a pairing in progress loses its bond and closes the window. An existing bond survives a failed encryption
     // (a radio glitch, a phone that restarted its stack): deleting it forced a full re-pair on hardware.
-    if (pairingOpen()) {
+    if (pairing) {
       if (NimBLEDevice::isBonded(link.getIdAddress())) NimBLEDevice::deleteBond(link.getIdAddress());  // a weak bond
       pairingUntilMs_ = 0;  // a failed attempt closes the window: retry on purpose
     }
+    refreshBondCount();
     if (server_) server_->disconnect(link.getConnHandle());
     return;
   }
-  if (pairingOpen()) dropOtherBonds(link);  // one phone at a time: pairing a new one replaces the old
+  if (pairing) dropOtherBonds(link);  // one phone at a time: pairing a new one replaces the old
+  refreshBondCount();
   pairingUntilMs_ = 0;
   if (!connected_.exchange(true)) epoch_++;  // a repeated authentication on the same link is not a new connection
   tunePending_ = true;

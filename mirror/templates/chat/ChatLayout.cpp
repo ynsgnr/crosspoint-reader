@@ -89,7 +89,8 @@ std::vector<LineRange> wrapRanges(const Gfx& g, Font f, const std::string& text,
         while (wordEnd > lineStart && g.textWidth(f, text.substr(lineStart, wordEnd - lineStart)) > maxWidth) {
           size_t cut = lineStart, next = lineStart;
           while (next < wordEnd) {
-            next += utf8::seqLen(static_cast<uint8_t>(text[next]));
+            next = std::min(wordEnd,
+                            next + utf8::seqLen(static_cast<uint8_t>(text[next])));  // a cut lead byte stays inside
             if (g.textWidth(f, text.substr(lineStart, next - lineStart)) > maxWidth) break;
             cut = next;
           }

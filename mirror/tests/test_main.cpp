@@ -404,8 +404,8 @@ static void testDraftGrowsAndFollowsCursor() {
   CHECK(ruleY(s) < shortTop);                                       // taller box
   CHECK(draftTexts(s).back().find("word39") != std::string::npos);  // cursor at the end: the end is shown
   s.draft_cursor = 0;
-  CHECK(draftTexts(s).front().find("word0") == 0 || draftTexts(s).front().find("word0") != std::string::npos);
-  s.draft_cursor = many.find("word20");  // cursor in the middle: its line is visible
+  CHECK(draftTexts(s).front().find("word0") == 0);  // cursor at the start: the box shows the start
+  s.draft_cursor = many.find("word20");             // cursor in the middle: its line is visible
   bool middle = false;
   for (const auto& t : draftTexts(s)) middle |= t.find("word20") != std::string::npos;
   CHECK(middle);
@@ -416,6 +416,25 @@ static void testDraftGrowsAndFollowsCursor() {
   bool messageShown = false;  // the box leaves room for at least one message
   for (const auto& it : chat::layout(g, s)) messageShown |= it.kind == chat::Item::Kind::Text && it.text == "hi";
   CHECK(messageShown);
+}
+
+// A single-op diff with trailing bytes is rejected before anything is applied.
+static void testSingleOpDiffWithTrailingBytesLeavesTheStateAlone() {
+  sim::SimGfx g(480, 800);
+  chat::ChatRenderer r;
+  gen::chat::ChatState s;
+  s.draft = "a";
+  s.draft_cursor = 1;
+  const auto full = chatFull(s);
+  CHECK(r.onFull(full.data(), full.size()));
+  Writer w;
+  w.writeUvarint(1);
+  encodeOp(gen::chat::OpDraftEdit{1, 0, "b"}, w);
+  std::vector<uint8_t> bytes = w.bytes();
+  bytes.push_back(0x55);  // trailing garbage
+  CHECK(!r.onDiff(bytes.data(), bytes.size()));
+  CHECK(r.state().draft == "a");
+  CHECK(r.onDiff(w.bytes().data(), w.bytes().size()) && r.state().draft == "ab");
 }
 
 static void testChatOpSemantics() {
@@ -560,6 +579,7 @@ int main() {
   testChatOpSemantics();
   testWrapHardBreakAndAlignment();
   testDraftGrowsAndFollowsCursor();
+  testSingleOpDiffWithTrailingBytesLeavesTheStateAlone();
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;

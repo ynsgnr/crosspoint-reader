@@ -72,17 +72,20 @@ bool ChatRenderer::onDiff(const uint8_t* payload, size_t len) {
   Reader r(payload, len);
   const uint32_t n = r.readUvarint();
   if (!r.ok() || n > kMaxOpsPerDiff) return false;
-  // A single op (a typed letter) applies in place: applyOp leaves the state untouched on failure.
+  if (n == 0) return r.atEnd();
+  if (n == 1) {  // a typed letter: applied in place, but only after the whole payload is known to be well formed
+    Op op;
+    if (!decodeOp(r, op) || !r.atEnd()) return false;
+    return applyOp(state_, op);  // leaves the state untouched on failure
+  }
   // Several ops apply to a copy so a half-applied diff is never committed.
-  ChatState copy;
-  if (n > 1) copy = state_;
-  ChatState& target = n > 1 ? copy : state_;
+  ChatState copy = state_;
   for (uint32_t i = 0; i < n; ++i) {
     Op op;
-    if (!decodeOp(r, op) || !applyOp(target, op)) return false;
+    if (!decodeOp(r, op) || !applyOp(copy, op)) return false;
   }
   if (!r.atEnd()) return false;
-  if (n > 1) state_ = std::move(copy);
+  state_ = std::move(copy);
   return true;
 }
 
