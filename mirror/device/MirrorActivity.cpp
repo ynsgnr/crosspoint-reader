@@ -265,6 +265,7 @@ void MirrorActivity::drawStatus() {
     buttons_.draw(renderer, renderer.getScreenHeight() / 2, cursor_, !mappedInput.hasTouch());
   }
   text.moveTo(renderer.getScreenHeight() - 3 * text.step());
+  text.line(std::string("Build ") + __DATE__ + " " + __TIME__);  // which firmware is running
   if (!note_.empty()) text.line(note_);
   text.line("Home / Back: leave Mirror");
 }
