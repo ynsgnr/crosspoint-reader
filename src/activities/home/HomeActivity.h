@@ -71,6 +71,8 @@ class HomeActivity final : public Activity {
   void onFileTransferOpen();
   void onOpdsBrowserOpen();
   void onPluginsOpen();
+  void onMirrorOpen();  // mirror fork feature (mirror/MIRROR_CHANGES.md)
+  void onMoreOpen();    // mirror builds: File Browser, File Transfer, OPDS/Plugins, Settings
 
   int getMenuItemCount() const;
   bool storeCoverBuffer();    // Store frame buffer for cover image

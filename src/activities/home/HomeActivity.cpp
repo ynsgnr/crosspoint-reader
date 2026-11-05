@@ -28,11 +28,36 @@
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/OpdsAutoSync.h"
+#ifdef CROSSPOINT_MIRROR
+#include "device/MirrorActivity.h"
+#include "device/MoreMenuActivity.h"
+#define MIRROR_ENABLED 1
+#else
+#define MIRROR_ENABLED 0
+#endif
+
+#if MIRROR_ENABLED
+// The list Home shows Library, Sync Now (when set up), Mirror and More...; the rest is under More... The cover grid
+// keeps its own tabs.
+enum class MirrorHomeItem { Library, Sync, Mirror, More };
+
+static MirrorHomeItem mirrorHomeItem(int menuIndex, bool hasSync) {
+  if (menuIndex == 0) return MirrorHomeItem::Library;
+  if (hasSync && menuIndex == 1) return MirrorHomeItem::Sync;
+  return menuIndex == (hasSync ? 2 : 1) ? MirrorHomeItem::Mirror : MirrorHomeItem::More;
+}
+#endif
 
 int HomeActivity::getMenuItemCount() const {
+#if MIRROR_ENABLED
+  if (!coverGridUi) return static_cast<int>(recentBooks.size()) + (hasSync ? 4 : 3);
+#endif
   int count = 4;  // File Browser, Library, File transfer, Settings
   if (hasSync) {
     count++;
+  }
+  if (MIRROR_ENABLED) {
+    count++;  // Mirror is the last item
   }
   if (!recentBooks.empty()) {
     count += recentBooks.size();
@@ -259,6 +284,12 @@ void HomeActivity::onEnter() {
 
   const auto base = static_cast<int>(recentBooks.size());
   selectorIndex = initialMenuItem == HomeMenuItem::NONE ? 0 : base + menuItemToIndex(initialMenuItem, hasLibrarySlot());
+#if MIRROR_ENABLED
+  if (!coverGridUi && initialMenuItem != HomeMenuItem::NONE) {
+    // Coming back from a screen under More... selects More...; Library selects itself.
+    selectorIndex = base + (initialMenuItem == HomeMenuItem::LIBRARY ? 0 : (hasSync ? 3 : 2));
+  }
+#endif
 
   // Trigger first update
   requestUpdate();
@@ -319,7 +350,30 @@ void HomeActivity::loop() {
       return;
     }
     const int menuIndex = selectorIndex - static_cast<int>(recentBooks.size());
-    if (hasSync && selectorIndex == getMenuItemCount() - 1) {
+#if MIRROR_ENABLED
+    if (!coverGridUi) {
+      switch (mirrorHomeItem(menuIndex, hasSync)) {
+        case MirrorHomeItem::Library:
+          onLibraryOpen();
+          break;
+        case MirrorHomeItem::Sync:
+          startOpdsSync(*this, renderer, mappedInput, silentRestart);
+          break;
+        case MirrorHomeItem::Mirror:
+          onMirrorOpen();
+          break;
+        case MirrorHomeItem::More:
+          onMoreOpen();
+          break;
+      }
+      return;
+    }
+#endif
+    if (MIRROR_ENABLED && selectorIndex == getMenuItemCount() - 1) {
+      onMirrorOpen();
+      return;
+    }
+    if (hasSync && selectorIndex == getMenuItemCount() - 1 - (MIRROR_ENABLED ? 1 : 0)) {
       startOpdsSync(*this, renderer, mappedInput, silentRestart);
       return;
     }
@@ -536,6 +590,18 @@ void HomeActivity::render(RenderLock&&) {
                           std::bind(&HomeActivity::storeCoverBuffer, this));
 
   // Build menu items dynamically
+#if MIRROR_ENABLED
+  std::vector<const char*> menuItems = {tr(STR_LIBRARY)};
+  std::vector<UIIcon> menuIcons = {Library};
+  if (hasSync) {
+    menuItems.push_back(tr(STR_SYNC_NOW));
+    menuIcons.push_back(Transfer);
+  }
+  menuItems.push_back("Mirror");  // not translated: keeps the fork out of lib/I18n
+  menuIcons.push_back(Transfer);
+  menuItems.push_back("More...");
+  menuIcons.push_back(Plugins);
+#else
   std::vector<const char*> menuItems = {tr(STR_BROWSE_FILES), tr(STR_LIBRARY), tr(STR_FILE_TRANSFER),
                                         tr(STR_SETTINGS_TITLE)};
   std::vector<UIIcon> menuIcons = {Folder, Library, Transfer, Settings};
@@ -549,6 +615,8 @@ void HomeActivity::render(RenderLock&&) {
     menuItems.push_back(tr(STR_SYNC_NOW));
     menuIcons.push_back(Transfer);
   }
+
+#endif
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme
@@ -595,3 +663,20 @@ void HomeActivity::onFileTransferOpen() { activityManager.goToFileTransfer(); }
 void HomeActivity::onOpdsBrowserOpen() { activityManager.goToBrowser(); }
 
 void HomeActivity::onPluginsOpen() { activityManager.goToPlugins(hasOpdsServers); }
+
+void HomeActivity::onMoreOpen() {
+#if MIRROR_ENABLED
+  activityManager.replaceActivity(std::make_unique<MoreMenuActivity>(renderer, mappedInput,
+                                                                     hasPlugins       ? 2
+                                                                     : hasOpdsServers ? 1
+                                                                                      : 0,
+                                                                     hasOpdsServers));
+#endif
+}
+
+void HomeActivity::onMirrorOpen() {
+#if MIRROR_ENABLED
+  // Replace Home (not push) so Home's buffers are freed before the BLE stack starts.
+  activityManager.replaceActivity(std::make_unique<MirrorActivity>(renderer, mappedInput));
+#endif
+}

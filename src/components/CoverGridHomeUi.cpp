@@ -19,6 +19,12 @@
 #include "icons/transfer.h"
 #include "util/BookProgress.h"
 
+#ifdef CROSSPOINT_MIRROR
+#define MIRROR_ENABLED 1
+#else
+#define MIRROR_ENABLED 0
+#endif
+
 namespace fui = freeink::ui;
 namespace {
 constexpr fui::ActionId SELECT = 1;
@@ -284,12 +290,13 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const uint8_t* ICONS[] = {FolderIcon,   LibraryIcon,   BlocksIcon,
-                                             TransferIcon, Settings2Icon, SyncIcon};
+  static constexpr const uint8_t* ICONS[] = {FolderIcon,    LibraryIcon, BlocksIcon,  TransferIcon,
+                                             Settings2Icon, SyncIcon,    TransferIcon /* Mirror */};
   int count = 0;
-  for (int i = 0; i < 6; ++i) {
+  for (int i = 0; i < 7; ++i) {
     if (i == 2 && !hasOpds) continue;
     if (i == 5 && !hasSync) continue;
+    if (i == 6 && !MIRROR_ENABLED) continue;
     auto& tab = tabItems[count];
     tab.value = books->size() + count;
     tab.selected = selected == tab.value;
@@ -306,7 +313,15 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
   tabs.iconPainter = [](fui::DrawTarget&, fui::Rect iconRect, const fui::TabItem& tab, uint8_t, void* user) {
     const auto& self = *static_cast<CoverGridHomeUi*>(user);
     const int index = tab.value - static_cast<int>(self.books->size());
-    const int icon = !self.hasOpds && index >= 2 ? index + 1 : index;
+    // Map the visible tab index back to its slot (OPDS, Sync and Mirror are optional).
+    const bool present[] = {true, true, self.hasOpds, true, true, self.hasSync, MIRROR_ENABLED != 0};
+    int icon = 6;  // never read when the index is valid; keeps the lookup inside ICONS
+    for (int slot = 0, seen = -1; slot < 7; ++slot) {
+      if (present[slot] && ++seen == index) {
+        icon = slot;
+        break;
+      }
+    }
     self.renderer.drawIcon(ICONS[icon], iconRect.x, iconRect.y, iconRect.width);
     return true;
   };
