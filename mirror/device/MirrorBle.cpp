@@ -27,6 +27,7 @@ bool linkSecure(const NimBLEConnInfo& link) { return link.isEncrypted() && link.
 
 // Unmeasured estimate of the block the NimBLE host needs; tighten after measuring on hardware.
 constexpr size_t kMinLargestBlock = 24 * 1024;
+constexpr uint32_t kSecurityRequestDelayMs = 1500;
 
 // The callback objects outlive one MirrorBle (the stack keeps them), so they point at the current instance and are
 // re-bound on every start(); a stale reference to a destroyed instance aborted the firmware on the second visit.
@@ -91,6 +92,7 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   if (running_) return StartResult::Ok;
   keyboard_ = keyboard;
   minimalAdvertisement_ = false;
+  advConnectable_ = true;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < kMinLargestBlock) {
     LOG_ERR("MIRROR", "not enough heap for BLE: largest block %u",
             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)));
@@ -172,6 +174,8 @@ void MirrorBle::stop() {
   eventChar_ = nullptr;
   hid_.reset();
   linkUp_ = false;
+  securityDueMs_ = 0;
+  advConnectable_ = true;
   advertisingState_ = -1;
   connected_ = false;
   passkey_ = -1;
@@ -195,11 +199,16 @@ bool MirrorBle::pairingOpen() const {
 void MirrorBle::service() {
   if (!running_) return;
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  // While a phone is connected the device keeps advertising once the link is secure: the phone's companion-device
-  // scan (association, presence) only finds devices that advertise. A second central is refused in onConnected().
+  // Not advertising to a phone that is already linked would hide the device from the phone's companion-device scan
+  // (association, presence), so a secure link keeps a non-connectable advertisement going: a second connection
+  // attempt (the phone's HID host and its app both reconnect on their own) would only be refused and retried.
   const bool bonded = NimBLEDevice::getNumBonds() > 0;
   const bool wanted = linkUp_ ? (bonded && connected_) : (pairingOpen() || bonded);
+  const bool connectable = !linkUp_;
+  if (wanted && adv->isAdvertising() && connectable != advConnectable_) adv->stop();  // the mode changes with the link
   if (wanted && !adv->isAdvertising()) {
+    adv->setConnectableMode(connectable ? BLE_GAP_CONN_MODE_UND : BLE_GAP_CONN_MODE_NON);
+    advConnectable_ = connectable;
     bool ok = adv->start();
     if (!ok && keyboard_ && !minimalAdvertisement_) {
       // The keyboard adds a service UUID; retry with only the mirror service UUID.
@@ -216,6 +225,17 @@ void MirrorBle::service() {
     adv->stop();
     advertisingState_ = -1;
     LOG_INF("MIRROR", "advertising off");
+  }
+  // A bonded phone usually encrypts the link itself right after connecting; asking at the same moment collides with it.
+  // So the request waits, and is only sent when the link is still not secure.
+  const uint32_t due = securityDueMs_.load();
+  if (due != 0 && linkUp_ && !connected_ && static_cast<int32_t>(millis() - due) >= 0) {
+    securityDueMs_ = 0;
+    const uint16_t handle = connHandle_.load();
+    if (server_ && !linkSecure(server_->getPeerInfoByHandle(handle))) {
+      LOG_INF("MIRROR", "link still not secure: asking the phone to pair or encrypt");
+      NimBLEDevice::startSecurity(handle);
+    }
   }
   if (pairingUntilMs_ != 0 && !pairingOpen()) {
     LOG_INF("MIRROR", "pairing window closed");
@@ -291,8 +311,8 @@ bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
   }
   connHandle_ = link.getConnHandle();
   mtu_ = 23;
-  // Ask for encryption (bonded phone) or start pairing (open window) instead of waiting for the phone to try.
-  if (!linkSecure(link)) NimBLEDevice::startSecurity(link.getConnHandle());
+  // If the phone does not secure the link by itself soon, ask it to (see service()).
+  securityDueMs_ = millis() + kSecurityRequestDelayMs;
   statusChanged_ = true;
   return true;
 }
@@ -302,6 +322,7 @@ void MirrorBle::onDisconnected(uint16_t handle, int reason) {
   if (handle != connHandle_.load()) return;  // a refused second link says nothing about the accepted one
   linkUp_ = false;
   connected_ = false;
+  securityDueMs_ = 0;
   connHandle_ = kNoConnection;
   if (hid_) hid_->onLinkDown();
   passkey_ = -1;
