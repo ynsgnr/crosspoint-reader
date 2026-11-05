@@ -28,34 +28,43 @@ bool linkSecure(const NimBLEConnInfo& link) { return link.isEncrypted() && link.
 // Unmeasured estimate of the block the NimBLE host needs; tighten after measuring on hardware.
 constexpr size_t kMinLargestBlock = 24 * 1024;
 
+// The callback objects outlive one MirrorBle (the stack keeps them), so they point at the current instance and are
+// re-bound on every start(); a stale reference to a destroyed instance aborted the firmware on the second visit.
 class ServerCallbacks final : public NimBLEServerCallbacks {
  public:
-  explicit ServerCallbacks(MirrorBle& b) : b_(b) {}
+  void bind(MirrorBle* b) { b_ = b; }
   void onConnect(NimBLEServer* s, NimBLEConnInfo& info) override {
-    if (!b_.onConnected(info)) return;
+    if (!b_ || !b_->onConnected(info)) return;
     // 15-30 ms interval so typed letters show quickly.
     s->updateConnParams(info.getConnHandle(), 12, 24, 0, 400);
     s->setDataLen(info.getConnHandle(), 251);
   }
-  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override { b_.onDisconnected(reason); }
-  void onMTUChange(uint16_t mtu, NimBLEConnInfo&) override { b_.onMtu(mtu); }
-  uint32_t onPassKeyDisplay() override { return b_.onPasskeyDisplay(); }
-  void onAuthenticationComplete(NimBLEConnInfo& info) override { b_.onAuthComplete(info); }
+  void onDisconnect(NimBLEServer*, NimBLEConnInfo&, int reason) override {
+    if (b_) b_->onDisconnected(reason);
+  }
+  void onMTUChange(uint16_t mtu, NimBLEConnInfo&) override {
+    if (b_) b_->onMtu(mtu);
+  }
+  uint32_t onPassKeyDisplay() override { return b_ ? b_->onPasskeyDisplay() : 0; }
+  void onAuthenticationComplete(NimBLEConnInfo& info) override {
+    if (b_) b_->onAuthComplete(info);
+  }
 
  private:
-  MirrorBle& b_;
+  MirrorBle* b_ = nullptr;
 };
 
 class DataCallbacks final : public NimBLECharacteristicCallbacks {
  public:
-  explicit DataCallbacks(MirrorBle& b) : b_(b) {}
+  void bind(MirrorBle* b) { b_ = b; }
   void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& info) override {
+    if (!b_) return;
     const NimBLEAttValue v = c->getValue();
-    b_.onWrite(v.data(), v.size(), info);
+    b_->onWrite(v.data(), v.size(), info);
   }
 
  private:
-  MirrorBle& b_;
+  MirrorBle* b_ = nullptr;
 };
 
 // NimBLE keeps raw pointers to these, so they live for the whole program.
@@ -91,8 +100,10 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   NimBLEDevice::setMTU(gen::kRequestedMtu);
   configureSecurity();
 
-  if (!serverCallbacks) serverCallbacks = new ServerCallbacks(*this);
-  if (!dataCallbacks) dataCallbacks = new DataCallbacks(*this);
+  if (!serverCallbacks) serverCallbacks = new ServerCallbacks();
+  if (!dataCallbacks) dataCallbacks = new DataCallbacks();
+  serverCallbacks->bind(this);
+  dataCallbacks->bind(this);
 
   server_ = NimBLEDevice::createServer();
   server_->setCallbacks(serverCallbacks, false);
@@ -149,6 +160,8 @@ void MirrorBle::stop() {
     for (auto handle : server_->getPeerDevices()) server_->disconnect(handle);
   }
   NimBLEDevice::deinit(true);  // frees server/advertising objects; bonds stay in NVS
+  serverCallbacks->bind(nullptr);
+  dataCallbacks->bind(nullptr);
   server_ = nullptr;
   eventChar_ = nullptr;
   hid_.reset();
