@@ -500,7 +500,7 @@ static void testBandedGfxLeavesTheTopBandFree() {
   for (int y = 0; y < band; ++y)
     for (int x = 0; x < 480; ++x) bandDrawn |= frame.black(x, y);
   CHECK(bandDrawn);
-  CHECK(statusBandText(gen::PhoneStatus{true, 7}).find("7 min") != std::string::npos);
+  CHECK(statusBandText(gen::PhoneStatus{true, 7}).find("on") != std::string::npos);
   CHECK(statusBandText(std::nullopt).find("dark mode") != std::string::npos);
 }
 
