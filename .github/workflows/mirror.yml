@@ -1,11 +1,20 @@
 # Mirror feature checks (new file; see mirror/MIRROR_CHANGES.md). Independent of the upstream workflows.
 name: mirror
 
+# A branch with an open pull request builds once, on the pull request: push only builds develop.
+# The X4 (ESP32-C3) image is only built on demand (Actions > mirror > Run workflow).
 on:
   push:
+    branches: [develop]
     paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
   pull_request:
     paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+  workflow_dispatch:
+
+# A newer push to the same branch replaces the run that is still going.
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -58,9 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { env: x4pro-mirror, asset: firmware-x4pro-mirror.bin }
-          - { env: mirror, asset: firmware-mirror.bin }
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"env":"x4pro-mirror","asset":"firmware-x4pro-mirror.bin"},{"env":"mirror","asset":"firmware-mirror.bin"}]' || '[{"env":"x4pro-mirror","asset":"firmware-x4pro-mirror.bin"}]') }}
     steps:
       - uses: actions/checkout@v6
         with:
