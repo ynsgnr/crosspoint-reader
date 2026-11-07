@@ -61,14 +61,9 @@ jobs:
             }
 
             const builds = [
-              { name: 'firmware.bin', device: 'X3 / X4' },
-              { name: 'firmware-sticky.bin', device: 'Sticky' },
-              { name: 'firmware-x4pro.bin', device: 'X4 Pro' },
-              { name: 'firmware-x4c.bin', device: 'X4 Classic' },
-              { name: 'firmware-papermono.bin', device: 'Paper Mono' },
-              { name: 'firmware-metalio_eink4.bin', device: 'MetalIO EInk4' },
-              { name: 'firmware-eego_a4.bin', device: 'EEGO A4' },
-              { name: 'firmware-picco.bin', device: 'BOOX Picco' },
+              // Fork: CI builds only the X4 Pro (stock image, without the mirror). The mirror image is the
+              // firmware-x4pro-mirror.bin artifact of the 'mirror' workflow run.
+              { name: 'firmware-x4pro.bin', device: 'X4 Pro (stock, no mirror)' },
             ];
             const { data: artifactResponse } =
               await github.rest.actions.listWorkflowRunArtifacts({

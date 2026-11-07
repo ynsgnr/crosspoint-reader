@@ -1,0 +1,125 @@
+# Mirror feature checks (new file; see mirror/MIRROR_CHANGES.md). Independent of the upstream workflows.
+name: mirror
+
+# A branch with an open pull request builds once, on the pull request: push only builds develop.
+# The X4 (ESP32-C3) image is only built on demand (Actions > mirror > Run workflow).
+on:
+  push:
+    branches: [develop]
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+  pull_request:
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+  workflow_dispatch:
+
+# A newer push to the same branch replaces the run that is still going.
+concurrency:
+  group: mirror-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  host:
+    name: Host tests and simulator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and test
+        run: |
+          cmake -S mirror -B build-mirror -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build-mirror -j"$(nproc)"
+          ctest --test-dir build-mirror --output-on-failure
+      - name: Simulator renders a transcript
+        run: build-mirror/mirror_sim mirror/test/golden/chat/typing.txt sim-out && test -s sim-out/frame_000.png
+      - uses: actions/upload-artifact@v6
+        with:
+          name: mirror-simulator-frames
+          path: sim-out
+
+  generated-files:
+    name: Generated files untouched
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: mirror/scripts/check-manifest.sh
+
+  spec-sync:
+    name: Generated files match the Android repo spec
+    runs-on: ubuntu-latest
+    # Needs read access to the (private) Android repo: set the variable RETINK_REPO and the secret RETINK_TOKEN. Skipped without them.
+    if: ${{ vars.RETINK_REPO != '' }}
+    steps:
+      - uses: actions/checkout@v6
+        with: { path: fork, persist-credentials: false }
+      - uses: actions/checkout@v6
+        with:
+          repository: ${{ vars.RETINK_REPO }}
+          token: ${{ secrets.RETINK_TOKEN }}
+          path: retink
+          persist-credentials: false
+      - run: pip install pyyaml
+      - run: retink/scripts/sync-fork.sh --check "$GITHUB_WORKSPACE/fork"
+
+  firmware:
+    name: Build ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"env":"x4pro-mirror","asset":"firmware-x4pro-mirror.bin"},{"env":"mirror","asset":"firmware-mirror.bin"}]' || '[{"env":"x4pro-mirror","asset":"firmware-x4pro-mirror.bin"}]') }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: false
+
+      # Same toolchain recipe as .github/workflows/ci.yml.
+      - name: Install PlatformIO Core
+        run: |
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          uv pip install --system -U "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
+            "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" "urllib3<2" \
+            "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" "bitstring>=4.3.1" \
+            "reedsolo>=1.5.3,<1.8" "esp-idf-size>=2.0.0" "esp-coredump>=1.14.0"
+
+      - name: Cache PlatformIO packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.platformio
+          key: pio-v3-${{ runner.os }}-${{ matrix.env }}-${{ hashFiles('platformio.ini', 'mirror/platformio_mirror.ini', 'scripts/patch_pioarduino_cache.py') }}
+          restore-keys: pio-v3-${{ runner.os }}-${{ matrix.env }}-
+
+      - name: Pin pioarduino core inside the platform penv
+        run: |
+          set -euo pipefail
+          # Custom-sdkconfig envs run a nested `pio run`; keep its core on the outer version
+          # (see the same step in ci.yml and pioarduino/platform-espressif32#529).
+          pio pkg install -e ${{ matrix.env }}
+          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
+          ~/.platformio/penv/bin/pio --version
+
+      - name: Build ${{ matrix.env }} firmware
+        run: |
+          set -euo pipefail
+          pio run -e ${{ matrix.env }} | tee pio.log
+          {
+            echo "## ${{ matrix.env }} firmware build stats"
+            grep -E "(RAM|Flash):\s" pio.log | sed 's/^/- /'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload firmware image
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.asset }}
+          path: .pio/build/${{ matrix.env }}/firmware.bin
+          if-no-files-found: error
