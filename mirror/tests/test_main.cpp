@@ -507,17 +507,21 @@ static void testBandedGfxLeavesTheTopBandFree() {
   sim::SimGfx frame(480, 800);
   const int band = statusBandHeight(frame);
   renderFrame(r, frame, "");
-  bool bandClear = true;
+  const int rad = (band - 6) / 2, cx = 8 + rad, cy = band / 2;
+  bool bandClear = true;  // nothing but the dot in the band: the template stays below it
   for (int y = 0; y < band; ++y)
-    for (int x = 0; x < 480; ++x) bandClear &= !frame.black(x, y);
+    for (int x = cx + rad + 1; x < 480; ++x) bandClear &= !frame.black(x, y);
   CHECK(bandClear);
-  renderFrame(r, frame, statusBandText(gen::PhoneStatus{true, 7, false, {}}));
-  bool bandDrawn = false;
+  CHECK(frame.black(cx - rad, cy) && !frame.black(cx, cy));  // dark mode off: a hollow dot
+  renderFrame(r, frame, statusBandText(gen::PhoneStatus{true, 7, false, {}}),
+              bandDarkMode(gen::PhoneStatus{true, 7, false, {}}));
+  CHECK(frame.black(cx - rad, cy) && frame.black(cx, cy));  // dark mode on: a filled dot
+  bool hintDrawn = false;
   for (int y = 0; y < band; ++y)
-    for (int x = 0; x < 480; ++x) bandDrawn |= frame.black(x, y);
-  CHECK(bandDrawn);
-  CHECK(statusBandText(gen::PhoneStatus{true, 7, false, {}}).find("on") != std::string::npos);
-  CHECK(statusBandText(std::nullopt).find("dark mode") != std::string::npos);
+    for (int x = cx + rad + 1; x < 480; ++x) hintDrawn |= frame.black(x, y);
+  CHECK(hintDrawn);
+  CHECK(statusBandText(std::nullopt) == "Back: menu");
+  CHECK(!bandDarkMode(std::nullopt) && bandDarkMode(gen::PhoneStatus{true, 7, false, {}}));
 }
 
 static bool runGolden(const std::string& path) {

@@ -85,6 +85,8 @@ class MirrorActivity final : public Activity {
   uint32_t enterDueMs_ = 0;  // when to send Enter after waking the phone (0 = none pending)
   mirror::ButtonColumn buttons_;
   int armed_ = kNone;  // a destructive action waiting for its second tap
+  int holdDir_ = 0;    // the scroll button held in the chat: 1 up, -1 down, 0 none
+  uint32_t nextRepeatMs_ = 0;
 
   // Drawing state.
   std::string drawnBand_;

@@ -143,17 +143,23 @@ DirtyRects ChatRenderer::render(Gfx& gfx) {
 }
 
 bool ChatRenderer::onButton(Button b, std::vector<uint8_t>& eventPayload) {
+  // Up/Down move the view at once through the messages held here; the phone's answer (the same absolute offset, or a
+  // new window when the view leaves what this device holds) follows as a diff.
+  const uint32_t oldest = state_.messages.empty() ? 0 : static_cast<uint32_t>(state_.messages.size() - 1);
   Event ev;
-  if (b == Button::Up)
+  if (b == Button::Up) {
     ev = EventScrollUp{1};
-  else if (b == Button::Down)
+    if (state_.scroll < oldest) ++state_.scroll;
+  } else if (b == Button::Down) {
     ev = EventScrollDown{1};
-  else if (b == Button::Top)
+    if (state_.scroll > 0) --state_.scroll;
+  } else if (b == Button::Top) {
     ev = EventScrollTop{};
-  else if (b == Button::Bottom)
+  } else if (b == Button::Bottom) {
     ev = EventScrollBottom{};
-  else
+  } else {
     return false;
+  }
   Writer w;
   encodeEvent(ev, w);
   eventPayload = w.take();

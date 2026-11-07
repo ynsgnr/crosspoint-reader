@@ -35,7 +35,7 @@ mismatch, scroll events) byte for byte through the real `Session` and `ChatRende
 Title row (scroll marker `vN` when newer messages are below, unread badge), messages (incoming left with a thin bar, own right-aligned
 as one block with a thick bar), and the draft box with its cursor. The box is 3 lines tall and grows with the text (up to most of the
 screen, leaving room for one message); when the draft is longer it shows the end, or the cursor's line when the cursor is further up.
-Up/Down (or the page buttons) scroll one message (see Scrolling); holding a button jumps to the oldest or newest message; Back opens the menu.
+Up/Down (or the page buttons) scroll one message, holding keeps scrolling (see Scrolling); Back opens the menu.
 
 ## Security (protocol 3)
 * **Encrypted and authenticated only.** Every characteristic (mirror `data`, `event`, `caps`, and every HID/battery/device-info characteristic) has `*_ENC | *_AUTHEN`;
@@ -53,10 +53,10 @@ Up/Down (or the page buttons) scroll one message (see Scrolling); holding a butt
 The Mirror screen has a column of buttons (`ButtonColumn`; the launcher's apps sit two to a row): tap them on touch boards (the X4 Pro has no Confirm button by default); on boards without touch, move the cursor with the arrow keys and press Confirm.
 * Not linked: **Pair phone**, **Forget phone** (asks for a second tap: it discards the pairing).
 * Linked: **Start mirror on phone** until the phone's app answers, **Unlock phone** only while the phone reports it is locked, and one button per app the phone sent (the launcher).
-* In the chat view the side buttons or a swipe scroll, and tapping the top of the screen (or Confirm) toggles the phone's dark mode. **Back** goes up one level: chat -> menu (the same page with **Back to chat**, the launcher and unlock), menu -> leave Mirror; the unlock pad -> back.
+* In the chat view the side buttons or a swipe scroll (holding a button keeps scrolling), and tapping the top of the screen (or Confirm) toggles the phone's dark mode. **Back** goes up one level: chat -> menu (the same page with **Back to chat**, the launcher and unlock), menu -> leave Mirror; the unlock pad -> back.
 
 ## Scrolling
-Up/Down (or the page buttons, or a swipe) send scroll events; the phone moves through the messages it holds, and past the oldest one it scrolls the chat app itself, so older messages appear without touching the phone. Holding a button jumps to the oldest or newest message; returning to the newest scrolls the app back down.
+Up/Down (or the page buttons, or a swipe) move the view at once through the messages the device holds and send a scroll event; holding a button repeats every 350 ms. The phone keeps the whole conversation and sends the device a window around its view that fits its max payload (`ChatCodec.fitTo`), so the view moves on past what the device holds after one round trip. Past the oldest message it holds, the phone scrolls the chat app itself, so older messages appear without touching the phone; returning to the newest scrolls the app back down.
 
 ## Launcher
 The phone sends the supported chat apps it has installed (`PhoneStatus.apps`, labels only). Tapping one sends `launch_app` with its index; the phone opens the app and the view returns to the chat, which follows the app that opens.
@@ -69,8 +69,7 @@ The phone sends the supported chat apps it has installed (`PhoneStatus.apps`, la
 * **Trigger chord**: **Start mirror on phone** (before the phone app runs) sends Ctrl+Alt+Shift+M over HID (`core/Chord.h`, fixed; the phone matches the same chord).
 
 ## Status band and dark mode
-Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): `Tap here: phone dark mode    Back: menu`, or `Phone dark mode on: tap here to end    Back: menu`
-while the phone reports it. Tapping the top of the screen (or Confirm) sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
+Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): a dot on the left, hollow while the phone's dark mode is off and filled while it is on, and `Back: menu` on the right. Tapping the top of the screen (or Confirm) sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template

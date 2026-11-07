@@ -11,7 +11,8 @@ namespace {
 constexpr char kDeviceName[] = "E-Ink Reader";  // generic on purpose: the advertisement identifies nothing
 constexpr uint32_t kPairingWindowMs = 120000;
 constexpr int kPartialsBeforeFull = 10;
-constexpr unsigned long kLongPressMs = 500;
+constexpr uint32_t kRepeatDelayMs = 500;  // holding Up/Down: first repeat after this
+constexpr uint32_t kRepeatEveryMs = 350;  // then one message per this (about one partial refresh)
 }  // namespace
 
 void MirrorActivity::resetSession() {
@@ -217,7 +218,8 @@ bool MirrorActivity::loopStatus() {
   return redraw;
 }
 
-// The chat screen: scroll with the side buttons or a swipe; the top of the screen toggles the phone's dark mode.
+// The chat screen: scroll with the side buttons or a swipe (holding a button keeps scrolling); the top of the screen
+// toggles the phone's dark mode.
 bool MirrorActivity::loopChat() {
   using Btn = MappedInputManager::Button;
   constexpr int kDarkModeTapHeight = 72;
@@ -226,28 +228,32 @@ bool MirrorActivity::loopChat() {
   if (tapTop || mappedInput.wasReleased(Btn::Confirm))
     session_->sendCommand(mirror::gen::kCmdToggleDarkMode);  // the new state comes back as a status message
   const auto swipe = mappedInput.wasSwipe();
-  const bool up = mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::Left) ||
-                  mappedInput.wasPressed(Btn::PageBack) || swipe == MappedInputManager::SwipeDir::Down;
-  const bool down = mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::Right) ||
-                    mappedInput.wasPressed(Btn::PageForward) || swipe == MappedInputManager::SwipeDir::Up;
-  // Holding a button jumps to the oldest or newest message; a short press scrolls one message.
-  const bool toTop = mappedInput.wasLongPressed(Btn::Up, kLongPressMs) ||
-                     mappedInput.wasLongPressed(Btn::Left, kLongPressMs) ||
-                     mappedInput.wasLongPressed(Btn::PageBack, kLongPressMs);
-  const bool toBottom = mappedInput.wasLongPressed(Btn::Down, kLongPressMs) ||
-                        mappedInput.wasLongPressed(Btn::Right, kLongPressMs) ||
-                        mappedInput.wasLongPressed(Btn::PageForward, kLongPressMs);
-  // The event goes to the phone, which moves through the messages it holds and, past the oldest, scrolls the chat app
-  // itself for more; the new view comes back as a diff.
-  if (toTop)
-    session_->onButton(mirror::Button::Top);
-  else if (toBottom)
-    session_->onButton(mirror::Button::Bottom);
-  else if (up)
-    session_->onButton(mirror::Button::Up);
-  else if (down)
-    session_->onButton(mirror::Button::Down);
-  return false;
+  const bool upPressed =
+      mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::Left) || mappedInput.wasPressed(Btn::PageBack);
+  const bool downPressed = mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::Right) ||
+                           mappedInput.wasPressed(Btn::PageForward);
+  const int held =
+      mappedInput.isPressed(Btn::Up) || mappedInput.isPressed(Btn::Left) || mappedInput.isPressed(Btn::PageBack) ? 1
+      : mappedInput.isPressed(Btn::Down) || mappedInput.isPressed(Btn::Right) || mappedInput.isPressed(Btn::PageForward)
+          ? -1
+          : 0;
+  int step = 0;  // +1 one message up (older), -1 one down
+  if (upPressed || swipe == MappedInputManager::SwipeDir::Down) step = 1;
+  if (downPressed || swipe == MappedInputManager::SwipeDir::Up) step = -1;
+  const uint32_t now = millis();
+  if (upPressed || downPressed) {
+    holdDir_ = held;  // a new press: repeats start after a pause
+    nextRepeatMs_ = now + kRepeatDelayMs;
+  } else if (held == 0 || held != holdDir_) {
+    holdDir_ = 0;
+  } else if (static_cast<int32_t>(now - nextRepeatMs_) >= 0) {
+    step = held;
+    nextRepeatMs_ = now + kRepeatEveryMs;
+  }
+  if (step == 0) return false;
+  // The view moves at once through the messages held here (ChatRenderer::onButton); the phone moves its copy, scrolls
+  // the chat app itself past the oldest message it holds, and sends the result as a diff.
+  return session_->onButton(step > 0 ? mirror::Button::Up : mirror::Button::Down);
 }
 
 void MirrorActivity::drawStatus() {
@@ -315,12 +321,14 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
   forceFull_ |= session_->takeTemplateSwitched();
   forceFull_ |= session_->takeResyncHappened();
   const std::string text = mirror::statusBandText(session_->phoneStatus());
-  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, text);
+  const bool dark = mirror::bandDarkMode(session_->phoneStatus());
+  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, text, dark);
   const mirror::RefreshPlan plan = policy_.plan(dirty, gfx_.width(), gfx_.height() - mirror::statusBandHeight(gfx_),
                                                 t->refreshOverrides(), forceFull_);
   forceFull_ = false;
-  const bool bandChanged = text != drawnBand_;
-  drawnBand_ = text;
+  const std::string band = text + (dark ? "|dark" : "");
+  const bool bandChanged = band != drawnBand_;
+  drawnBand_ = band;
   return plan.kind == mirror::RefreshKind::None && bandChanged ? mirror::RefreshKind::Partial : plan.kind;
 }
 
