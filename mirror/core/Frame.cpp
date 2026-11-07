@@ -7,8 +7,8 @@ namespace mirror {
 int statusBandHeight(const Gfx& gfx) { return gfx.lineHeight(Font::Small) + 4; }
 
 std::string statusBandText(const std::optional<gen::PhoneStatus>& phone) {
-  if (phone && phone->dark_mode) return "Phone dark mode: on  (tap here: off)";
-  return "Phone dark mode: tap here";
+  if (phone && phone->dark_mode) return "Phone dark mode on: tap here to end    Back: menu";
+  return "Tap here: phone dark mode    Back: menu";
 }
 
 DirtyRects renderFrame(TemplateRenderer& renderer, Gfx& gfx, const std::string& bandText) {

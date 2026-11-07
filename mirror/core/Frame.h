@@ -11,7 +11,7 @@ namespace mirror {
 
 int statusBandHeight(const Gfx& gfx);
 
-// Dark mode state and the button hint.
+// Dark mode state and the button hints (tap the band: dark mode; Back: the menu with the launcher and unlock).
 std::string statusBandText(const std::optional<gen::PhoneStatus>& phone);
 
 // Draws the template under the band, then the band text. Returns what the template says changed.

@@ -8,7 +8,7 @@ add_compile_options(-Wall -Wextra -Wno-unused-parameter)
 
 # OBJECT library: the templates register themselves from static initialisers, which an archive would drop.
 file(GLOB_RECURSE MIRROR_TEMPLATE_SOURCES CONFIGURE_DEPENDS templates/*.cpp)  # a new template needs no CMake change
-add_library(mirror_core OBJECT core/Chord.cpp core/Envelope.cpp core/Frame.cpp core/RefreshPolicy.cpp core/Session.cpp ${MIRROR_TEMPLATE_SOURCES})
+add_library(mirror_core OBJECT core/Envelope.cpp core/Frame.cpp core/RefreshPolicy.cpp core/Session.cpp ${MIRROR_TEMPLATE_SOURCES})
 target_include_directories(mirror_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 
 add_library(mirror_sim_lib OBJECT sim/SimGfx.cpp sim/Png.cpp sim/Transcript.cpp)

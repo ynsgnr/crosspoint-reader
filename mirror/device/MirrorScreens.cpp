@@ -1,8 +1,7 @@
 #if defined(CROSSPOINT_MIRROR)
-// Unlock pad and chord settings. Keys are sent the moment they are pressed and never stored.
+// Unlock pad. Keys are sent the moment they are pressed and never stored.
 
 #include "device/MirrorActivity.h"
-#include "device/MirrorSettings.h"
 #include "device/ScreenText.h"
 
 namespace {
@@ -34,30 +33,17 @@ int cellAt(int x, int y, int count, int rows, int screenW, int screenH) {
   return -1;
 }
 
-// Chord settings rows.
-enum ChordRow { kRowCtrl, kRowAlt, kRowShift, kRowKey, kRowSave, kRowCount };
-struct ModifierRow {
-  const char* name;
-  uint8_t mask;
-};
-constexpr ModifierRow kModifierRows[] = {
-    {"Ctrl", mirror::kModCtrl}, {"Alt", mirror::kModAlt}, {"Shift", mirror::kModShift}};
 }  // namespace
 
-void MirrorActivity::sendChordToPhone() { session_->sendCommand(mirror::gen::kCmdChord, chord_.mods, chord_.key); }
-
 bool MirrorActivity::sendKey(uint8_t usage) {
-  const bool allowed = phoneAllowsKeyboard();
-  const bool sent = allowed && ble_.typeKey(0, usage);
-  note_ = sent      ? ""
-          : allowed ? "Keyboard not ready: check the phone's Bluetooth"
-                    : "Keyboard is off: enable it in the app";
+  const bool sent = ble_.typeKey(0, usage);
+  note_ = sent ? "" : "Keyboard not ready: check the phone's Bluetooth";
   return sent;
 }
 
 void MirrorActivity::openUnlock() {
   setScreen(Screen::Unlock);
-  if (phoneAllowsKeyboard() && ble_.wakePhone()) {  // before anything is typed
+  if (ble_.wakePhone()) {  // before anything is typed
     // Enter brings up the PIN prompt on a locked phone, so the digits that follow have somewhere to go. Not
     // sent when the phone says it is already unlocked: Enter would reach whatever app is open. It waits a moment for
     // the screen to light up, without blocking the loop (see sendDueEnter).
@@ -113,90 +99,27 @@ bool MirrorActivity::loopUnlock() {
   return redraw | (press >= 0) | leaveWhenUnlocked();
 }
 
-// The chord rows as buttons: three modifiers, the key, Save.
-void MirrorActivity::buildChordButtons() {
-  buttons_.clear();
-  for (const ModifierRow& m : kModifierRows)
-    buttons_.add(std::string(m.name) + ": " + ((editChord_.mods & m.mask) ? "on" : "off"), buttons_.count());
-  buttons_.add("Key: " + mirror::chordLabel({0, editChord_.key}) + "  (tap or Left/Right)", kRowKey);
-  buttons_.add("Save", kRowSave);
-}
-
-int MirrorActivity::chordButtonsTop() const { return renderer.getScreenHeight() / 3; }
-
-bool MirrorActivity::loopChordSettings() {
-  using Btn = MappedInputManager::Button;
-  bool redraw = false;
-  if (mappedInput.wasPressed(Btn::Left)) editChord_.key = mirror::nextChordKey(editChord_.key, -1), redraw = true;
-  if (mappedInput.wasPressed(Btn::Right)) editChord_.key = mirror::nextChordKey(editChord_.key, 1), redraw = true;
-  if (!mappedInput.hasTouch()) {
-    if (mappedInput.wasPressed(Btn::Up)) cursor_ = (cursor_ + kRowCount - 1) % kRowCount, redraw = true;
-    if (mappedInput.wasPressed(Btn::Down)) cursor_ = (cursor_ + 1) % kRowCount, redraw = true;
-  }
-
-  int row = mappedInput.wasReleased(Btn::Confirm) ? cursor_ : -1;
-  int x = 0, y = 0;
-  buildChordButtons();
-  if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y)) {
-    const int hit = buttons_.hit(renderer, x, y, chordButtonsTop());
-    if (hit >= 0) row = cursor_ = hit;
-  }
-  if (row < 0) return redraw;
-
-  if (row < kRowKey) {
-    editChord_.mods ^= kModifierRows[row].mask;
-  } else if (row == kRowKey) {
-    editChord_.key = mirror::nextChordKey(editChord_.key, 1);
-  } else if (mirror::checkChord(editChord_) == mirror::ChordCheck::Ok) {
-    chord_ = editChord_;
-    mirror::settings::setChord(chord_);
-    if (ble_.connected() && session_->phoneStatus()) sendChordToPhone();
-    setScreen(Screen::Status);
-    note_ = "Chord saved";
-  }
-  return true;
-}
-
-void MirrorActivity::drawKeyGrid(const char* title, const char* const* labels, int count, int rows) {
+void MirrorActivity::drawUnlock() {
   renderer.clearScreen();
   mirror::TextColumn text(renderer, renderer.getLineHeight(UI_10_FONT_ID) / 2);
-  text.line(title, true);
+  text.line("Unlock phone: PIN", true);
   const auto& phone = session_->phoneStatus();
   text.line(!phone ? "Phone state unknown" : phone->locked ? "Phone is locked" : "Phone is unlocked");
   // On touch boards no key is highlighted: e-ink would keep showing the last key after power-off.
   const bool showCursor = !mappedInput.hasTouch();
-  for (int i = 0; i < count; ++i) {
-    const Cell c = gridCell(i, rows, renderer.getScreenWidth(), renderer.getScreenHeight());
+  for (int i = 0; i < kPinKeys; ++i) {
+    const Cell c = gridCell(i, kPinRows, renderer.getScreenWidth(), renderer.getScreenHeight());
     const bool selected = showCursor && i == cursor_;
-    if (labels[i][0] == '\0') continue;  // an empty slot in the grid
+    const char* const label = kPinLabels[i];
+    if (label[0] == '\0') continue;  // an empty slot in the grid
     renderer.drawRect(c.x, c.y, c.w, c.h, selected ? 4 : 1, true);
-    const int tw = renderer.getTextWidth(UI_10_FONT_ID, labels[i]);
+    const int tw = renderer.getTextWidth(UI_10_FONT_ID, label);
     renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
-                      labels[i], true, selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
+                      label, true, selected ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR);
   }
   text.moveTo(renderer.getScreenHeight() - 3 * text.step());
   if (!note_.empty()) text.line(note_);
-  text.line(mappedInput.hasTouch() ? "Tap  Home / Back: close" : "Arrows: move  Confirm: press  Back: close");
+  text.line(mappedInput.hasTouch() ? "Tap the keys   Back: close" : "Arrows: move  Confirm: press  Back: close");
 }
 
-void MirrorActivity::drawChordSettings() {
-  renderer.clearScreen();
-  mirror::TextColumn text(renderer, renderer.getScreenHeight() / 8);
-  text.line("Trigger chord", true);
-  text.line(mirror::chordLabel(editChord_), true);
-  const mirror::ChordCheck check = mirror::checkChord(editChord_);
-  text.line(check == mirror::ChordCheck::Ok ? "Sent from the Mirror screen to start the app on your phone"
-                                            : mirror::chordCheckText(check));
-  buildChordButtons();
-  buttons_.draw(renderer, chordButtonsTop(), cursor_, !mappedInput.hasTouch());
-  text.moveTo(renderer.getScreenHeight() - 2 * text.step());
-  text.line("Home / Back: cancel");
-}
-
-void MirrorActivity::drawSubScreen() {
-  if (screen_ == Screen::Unlock)
-    drawKeyGrid("Unlock phone: PIN", kPinLabels, kPinKeys, kPinRows);
-  else
-    drawChordSettings();
-}
 #endif

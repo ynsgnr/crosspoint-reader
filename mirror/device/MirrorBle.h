@@ -23,8 +23,9 @@ class MirrorBle {
 
   ~MirrorBle() { stop(); }  // the stack must not call back into a destroyed instance
 
-  // `keyboard` adds the HID keyboard to the same GATT server and bond. NoMemory when the heap cannot host the stack.
-  StartResult start(const char* deviceName, const std::vector<uint8_t>& capabilities, bool keyboard);
+  // The mirror service and the HID keyboard share one GATT server and bond. NoMemory when the heap cannot host the
+  // stack.
+  StartResult start(const char* deviceName, const std::vector<uint8_t>& capabilities);
   void stop();  // stops advertising, disconnects, deinitialises the stack
 
   // True once the link is encrypted and authenticated; nothing is sent or accepted before that.
@@ -38,7 +39,7 @@ class MirrorBle {
 
   // Passkey to show while pairing, else -1.
   int32_t pairingPasskey() const { return passkey_.load(); }
-  // Keyboard: false when it is off, not subscribed by the phone's HID host yet, or the link is down.
+  // Keyboard: false until the phone's HID host has subscribed, or when the link is down.
   bool keyboardReady() const { return hid_ && connected_.load() && hid_->ready(); }
   bool typeKey(uint8_t mods, uint8_t usage) { return keyboardReady() && hid_->tap(connHandle_.load(), mods, usage); }
   bool wakePhone() { return keyboardReady() && hid_->wake(connHandle_.load()); }
@@ -72,7 +73,6 @@ class MirrorBle {
   std::atomic<int> bondCount_{0};            // see bondCount()
   std::atomic<bool> pairingLatched_{false};  // a passkey was issued: the pairing may finish after the window closes
   std::atomic<uint32_t> pairingUntilMs_{0};
-  bool keyboard_ = false;
   bool minimalAdvertisement_ = false;      // fell back to the smallest advertisement after a failed start
   std::atomic<bool> linkUp_{false};        // a central is connected, secure or not
   bool advConnectable_ = true;             // the running advertisement accepts connections

@@ -62,7 +62,7 @@ Verified on hardware (X4 Pro, Pixel on Android 16): passkey pairing and bonding,
    Risk: `ble_gatts_set_clt_cfg_perm_flags` is a private NimBLE function (declared by hand in `MirrorBle.cpp`); confirm the CCCD really asks for encryption.
 2. Only LE Secure Connections with passkey is accepted: try a legacy-only and a Just Works central. `sm_sc_only` also refuses phones without Secure Connections.
 3. One pairing gives both the HID keyboard and the app's GATT link; forgetting on either side removes both; re-pairing from clean works. Android keeps the HID connection itself;
-   the app's "keyboard" switch only changes what the app and the device do (`keyboard_allowed`), not the OS input-device profile.
+   neither side has a keyboard switch any more (protocol 4).
 4. The keyboard types the PIN on the lock screen, also after a reboot before first unlock (the app cannot run then; the pad types blind). Android may require the screen to be on: test the wake sent when the unlock screen opens.
 5. Which wake mechanism works (Shift tap vs System Wake Up usage) per phone. Android's on-screen keyboard is normally hidden while a hardware keyboard is connected; check yours.
 6. The system HID connection and the app's GATT connection on one link; connection parameters (`updateConnParams` 15-30 ms) with HID traffic; the NimBLE host's connection count.
@@ -70,7 +70,8 @@ Verified on hardware (X4 Pro, Pixel on Android 16): passkey pairing and bonding,
    (`REQUEST_COMPANION_START_FOREGROUND_SERVICES_FROM_BACKGROUND` is declared, but needs a Companion association, which `CompanionPairing` makes).
 8. Pattern locks were tried (digits 0-8 as dots, dragged) and removed: the gesture did not work. Only PIN is supported. The pad sends main-row digits only; a lock screen that wants keypad digits needs `0x59-0x62` (not implemented).
 9. X4 Pro: MCU (C3 vs S3), heap headroom with HID + mirror service (the C3 image grew: see the Flash and RAM table above), touch tap coordinates in `wasScreenTapped`, and that the page-turner ring is off while Mirror is open.
-10. Bonds survive a reboot on both sides; nothing about a PIN is persisted (only `kbd`, `chord_mod`, `chord_key`, `sec_epoch` are in NVS).
+10. Bonds survive a reboot on both sides; nothing about a PIN is persisted (only `sec_epoch` is in NVS; older builds also left `kbd`, `chord_mod`, `chord_key`, now unread).
+11. The launcher opens each app from the background (the phone's accessibility service context), also while dark mode is on; scrolling past the oldest message drags the chat app's list without a fling and the next reading overlaps the last one, in WhatsApp, Signal, Discord and the Claude app.
 
 ## Not verified
 * Not measured on hardware: throughput, real refresh quality and ghosting cadence, heap headroom over many visits (the heap is now logged at every stop), battery. No emulator was run (no KVM).
