@@ -33,9 +33,9 @@ class Session {
   // Null until the phone sends a full state.
   TemplateRenderer* active() { return active_.get(); }
   uint16_t lastApplied() const { return lastApplied_; }
-  // The phone's screen mode (dark mode on or off, minutes left), once the phone has sent it.
+  // What the phone last reported (dark mode, lock state, the apps for the launcher), once it has sent it.
   const std::optional<gen::PhoneStatus>& phoneStatus() const { return phone_; }
-  std::string phoneDump() const;  // golden-file form: "dark=1 minutes=30" or "-"
+  std::string phoneDump() const;  // golden-file form: "dark=1 minutes=30 locked=0 apps=Signal,WhatsApp" or "-"
 
   // Asks the phone to do something (gen::kCmd*). Only valid while connected.
   void sendCommand(uint8_t command, uint8_t arg = 0, uint8_t arg2 = 0);

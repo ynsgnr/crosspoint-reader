@@ -13,7 +13,7 @@
 
 namespace mirror::gen {
 
-inline constexpr uint8_t kProtocolVersion = 3;
+inline constexpr uint8_t kProtocolVersion = 4;
 inline constexpr uint32_t kMagic = 167;
 inline constexpr uint32_t kHeaderSize = 11;
 inline constexpr uint32_t kCrcSize = 2;
@@ -36,7 +36,7 @@ inline constexpr uint8_t kErrBadPayload = 5;
 inline constexpr uint8_t kCmdToggleDarkMode = 1;
 inline constexpr uint8_t kCmdUnlockRequest = 2;
 inline constexpr uint8_t kCmdHidStatus = 3;
-inline constexpr uint8_t kCmdChord = 4;
+inline constexpr uint8_t kCmdLaunchApp = 5;
 inline constexpr uint8_t kFeaturePhoneStatus = 1;
 inline constexpr uint8_t kFeatureHidKeyboard = 2;
 inline constexpr const char* kUuidService = "6d1a0001-7e1c-4f3b-9a53-5c0b2d9a11e0";
@@ -160,23 +160,50 @@ struct ControlEvent {
   bool operator==(const ControlEvent&) const = default;
 };
 
+struct PhoneApp {
+  std::string name;
+
+  void encode(Writer& w) const {
+    w.writeString(name, 24);
+  }
+  static bool decode(Reader& r, PhoneApp& out) {
+    out.name = r.readString(24);
+    return r.ok();
+  }
+  bool operator==(const PhoneApp&) const = default;
+};
+
 struct PhoneStatus {
   bool dark_mode = false;
   uint16_t minutes_left = 0;
   bool locked = false;
-  bool keyboard_allowed = false;
+  std::vector<PhoneApp> apps;
 
   void encode(Writer& w) const {
     w.writeBool(dark_mode);
     w.writeU16(minutes_left);
     w.writeBool(locked);
-    w.writeBool(keyboard_allowed);
+    if (apps.size() > 12) { w.fail(); return; }
+    w.writeUvarint(static_cast<uint32_t>(apps.size()));
+    for (const auto& e : apps) {
+      e.encode(w);
+    }
   }
   static bool decode(Reader& r, PhoneStatus& out) {
     out.dark_mode = r.readBool();
     out.minutes_left = r.readU16();
     out.locked = r.readBool();
-    out.keyboard_allowed = r.readBool();
+    {
+      uint32_t n = r.readUvarint();
+      if (!r.ok() || n > 12) { r.fail(); return false; }
+      out.apps.clear();
+      out.apps.reserve(n);
+      for (uint32_t i = 0; i < n; ++i) {
+        PhoneApp e;
+        if (!PhoneApp::decode(r, e)) return false;
+        out.apps.push_back(std::move(e));
+      }
+    }
     return r.ok();
   }
   bool operator==(const PhoneStatus&) const = default;

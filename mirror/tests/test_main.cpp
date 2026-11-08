@@ -353,7 +353,7 @@ static void testSessionButtons() {
         d.out[0].templateId == 1);
   CHECK(!d.session.onButton(Button::Left));
   CHECK(d.out.size() == 1);
-  // A long press jumps to the ends: one event frame each.
+  // Top and Bottom (the simulator's jumps to the ends) are one event frame each.
   CHECK(d.session.onButton(Button::Top) && d.session.onButton(Button::Bottom) && d.out.size() == 3);
   CHECK(d.out[1].has(gen::kFlagEvent) && d.out[2].has(gen::kFlagEvent));
 }
@@ -462,12 +462,12 @@ static void testControlChannel() {
   Device d;
   CHECK(!d.session.phoneStatus() && d.session.phoneDump() == "-");
   Writer w;
-  gen::PhoneStatus{true, 25, true, true}.encode(w);
+  gen::PhoneStatus{true, 25, true, {{"Signal"}, {"WhatsApp"}}}.encode(w);
   d.send(gen::kFlagStatus, 1, 0, w.take(), 0, 0);
   CHECK(d.out.empty() && d.session.phoneStatus() && d.session.phoneStatus()->minutes_left == 25);
-  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1 kbd=1");
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1 apps=Signal,WhatsApp");
   d.send(gen::kFlagStatus, 2, 0, {0xFF}, 0, 0);  // garbage status is ignored
-  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1 kbd=1" && d.out.empty());
+  CHECK(d.session.phoneDump() == "dark=1 minutes=25 locked=1 apps=Signal,WhatsApp" && d.out.empty());
 
   d.session.sendCommand(gen::kCmdToggleDarkMode);
   CHECK(d.out.size() == 1 && d.out[0].templateId == 0 && d.out[0].has(gen::kFlagCommand));
@@ -479,19 +479,16 @@ static void testControlChannel() {
   d.session.sendCommand(gen::kCmdHidStatus, 2);
   Reader r2(d.out[0].payload.data(), d.out[0].payload.size());
   CHECK(d.out.size() == 1 && gen::ControlCommand::decode(r2, c) && c.command == gen::kCmdHidStatus && c.arg == 2);
+
+  d.out.clear();
+  d.session.sendCommand(gen::kCmdLaunchApp, 1);  // the launcher picks the phone's second app
+  Reader r3(d.out[0].payload.data(), d.out[0].payload.size());
+  CHECK(d.out.size() == 1 && gen::ControlCommand::decode(r3, c) && c.command == gen::kCmdLaunchApp && c.arg == 1);
 }
 
-static void testChordRules() {
+static void testDefaultChordAndDigits() {
   using namespace mirror;
-  CHECK(chordLabel(kDefaultChord) == "Ctrl+Alt+Shift+M" && checkChord(kDefaultChord) == ChordCheck::Ok);
-  CHECK(checkChord({0, 0x10}) == ChordCheck::TooFewModifiers);         // never a bare key
-  CHECK(checkChord({kModCtrl, 0x10}) == ChordCheck::TooFewModifiers);  // nor one modifier
-  CHECK(checkChord({kModCtrl | kModMeta, 0x10}) == ChordCheck::MetaReserved);
-  CHECK(checkChord({kModCtrl | kModAlt | kModShift, 0x28}) == ChordCheck::KeyNotAllowed);  // Enter
-  CHECK(checkChord({kModCtrl | kModShift, 0x17}) == ChordCheck::CommonShortcut);           // Ctrl+Shift+T
-  CHECK(checkChord({kModCtrl | kModAlt, 0x17}) == ChordCheck::CommonShortcut);             // Ctrl+Alt+T
-  CHECK(checkChord({kModCtrl | kModAlt, 0x10}) == ChordCheck::Ok);                         // Ctrl+Alt+M
-  CHECK(nextChordKey(0x1D, 1) == 0x1E && nextChordKey(0x27, 1) == 0x04 && nextChordKey(0x04, -1) == 0x27);
+  CHECK(kDefaultChord.mods == (kModCtrl | kModAlt | kModShift) && kDefaultChord.key == 0x10);  // Ctrl+Alt+Shift+M
   CHECK(digitUsage(1) == 0x1E && digitUsage(9) == 0x26 && digitUsage(0) == 0x27);
 }
 
@@ -509,18 +506,21 @@ static void testBandedGfxLeavesTheTopBandFree() {
   r.onFull(bytes.data(), bytes.size());
   sim::SimGfx frame(480, 800);
   const int band = statusBandHeight(frame);
-  renderFrame(r, frame, "");
-  bool bandClear = true;
+  renderFrame(r, frame, false);
+  const int rad = (band - 6) / 2, cx = 8 + rad, cy = band / 2;
+  const int hintLeft = 480 - 8 - frame.textWidth(Font::Small, "Back: menu");
+  bool bandClear = true;  // between the dot and the hint the band is empty: the template stays below it
   for (int y = 0; y < band; ++y)
-    for (int x = 0; x < 480; ++x) bandClear &= !frame.black(x, y);
+    for (int x = cx + rad + 1; x < hintLeft; ++x) bandClear &= !frame.black(x, y);
   CHECK(bandClear);
-  renderFrame(r, frame, statusBandText(gen::PhoneStatus{true, 7}));
-  bool bandDrawn = false;
+  bool hintDrawn = false;
   for (int y = 0; y < band; ++y)
-    for (int x = 0; x < 480; ++x) bandDrawn |= frame.black(x, y);
-  CHECK(bandDrawn);
-  CHECK(statusBandText(gen::PhoneStatus{true, 7}).find("on") != std::string::npos);
-  CHECK(statusBandText(std::nullopt).find("dark mode") != std::string::npos);
+    for (int x = hintLeft; x < 480; ++x) hintDrawn |= frame.black(x, y);
+  CHECK(hintDrawn);
+  CHECK(frame.black(cx - rad, cy) && !frame.black(cx, cy));  // dark mode off: a hollow dot
+  renderFrame(r, frame, bandDarkMode(gen::PhoneStatus{true, 7, false, {}}));
+  CHECK(frame.black(cx - rad, cy) && frame.black(cx, cy));  // dark mode on: a filled dot
+  CHECK(!bandDarkMode(std::nullopt));
 }
 
 static bool runGolden(const std::string& path) {
@@ -573,7 +573,7 @@ int main() {
   testChatLayoutStates();
   testSessionErrors();
   testControlChannel();
-  testChordRules();
+  testDefaultChordAndDigits();
   testBandedGfxLeavesTheTopBandFree();
   testSessionButtons();
   testChatOpSemantics();

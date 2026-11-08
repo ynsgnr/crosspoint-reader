@@ -11,10 +11,10 @@ namespace mirror {
 
 int statusBandHeight(const Gfx& gfx);
 
-// Dark mode state and the button hint.
-std::string statusBandText(const std::optional<gen::PhoneStatus>& phone);
+bool bandDarkMode(const std::optional<gen::PhoneStatus>& phone);
 
-// Draws the template under the band, then the band text. Returns what the template says changed.
-DirtyRects renderFrame(TemplateRenderer& renderer, Gfx& gfx, const std::string& bandText);
+// Draws the template under the band, then the band: the phone's dark mode as a dot on the left (filled = on, hollow =
+// off; tapping the band toggles it) and "Back: menu" on the right. Returns what the template says changed.
+DirtyRects renderFrame(TemplateRenderer& renderer, Gfx& gfx, bool darkMode);
 
 }  // namespace mirror

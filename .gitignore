@@ -35,3 +35,4 @@ sdkconfig.x4pro
 flake.*
 build-mirror/
 sim-out/
+mirror/device/BuildInfo.h
