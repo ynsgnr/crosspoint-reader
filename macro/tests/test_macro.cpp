@@ -15,7 +15,7 @@ static int g_fail = 0;
   } while (0)
 
 int main() {
-  CHECK(kMacroCount > 0 && kMacroCount <= kMacroCols * 3);  // fits the 3x3 grid
+  CHECK(kMacroCount > 0 && kMacroCount <= kMacroCols * kMacroRowsMax);  // fits the 3x4 grid
   CHECK(kMacroRows * kMacroCols >= kMacroCount);
   for (const Macro& m : kMacros) {
     CHECK(m.label && m.label[0] != '\0');

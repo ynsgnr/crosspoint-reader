@@ -1,8 +1,8 @@
 # macro/: macro deck for the Xteink X4 / X4 Pro
 
-A **Macro** entry on Home opens a 3x3 grid of shortcuts. A tap (or Confirm on the cursor) sends one shortcut to the host as a
+A **Macro** entry on Home opens a 3x4 grid of shortcuts. A tap (or Confirm on the cursor) sends one shortcut to the host as a
 **USB HID keyboard** (default): media keys (consumer report) or a key with modifiers. A **Bluetooth** setting, the switch
-below the grid, sends over the BLE HID keyboard of the `mirror/` module instead. Nothing else is stored.
+shown while no host is connected, sends over the BLE HID keyboard of the `mirror/` module instead. Nothing else is stored.
 
 ```
 Macro.h              the shortcut table (portable, host tested)
@@ -15,10 +15,10 @@ tests/               host test of the table
 ```
 
 ## Use
-**USB (default, X4 Pro):** open **Macro** and plug the USB cable into the host; the grid shows once the host has enumerated
-the device. The X4 Pro appears as a keyboard while Macro is open. TinyUSB cannot be stopped, so closing Macro reboots to Home.
+**USB (default, X4 Pro):** open **Macro** and plug the USB cable into the host; the 12 keys fill the screen once the host has
+enumerated the device (no title or text). A key turns black while it is touched or sent. Home / Back closes. The X4 Pro appears as a keyboard while Macro is open. TinyUSB cannot be stopped, so closing Macro reboots to Home.
 
-**Bluetooth:** tap the switch under the grid (or select it and press Confirm) to turn Bluetooth on; the choice is saved.
+**Bluetooth:** while no host is connected the screen shows a switch; tap it (or press Confirm) to turn Bluetooth on or off. The choice is saved.
 1. In **Mirror**, tap **Pair phone** and pair the host (the passkey shows on the device).
 2. Open **Macro**. With a bonded host in range it connects by itself; pairing is never done here.
 
@@ -37,7 +37,7 @@ environments extend the mirror ones.
 
 ## Not verified
 * **Nothing here has been compiled for the device or run on hardware.** Only the host test of the table ran. The USB path (`MacroUsb.cpp`) is the newest and least checked: `USBHIDKeyboard` + `USBHIDConsumerControl` with `USB.begin()` next to hardware CDC/JTAG, and the reboot on leaving.
-* The switch row below the grid fits above the footer lines on the X4 Pro screen (not seen on a display).
+* The 3x4 layout, the black pressed key and the extra refresh per press (ghosting, battery) are not seen on a display.
 * `macro/build.py` appends to `SRC_FILTER` after `mirror/build.py` replaced it; the order of `extra_scripts` and the append on a
   string variable are untested.
 * Media keys and Ctrl+C/V/Z reach a phone and a PC over the same bond; a press and release 15 ms apart is not dropped by the host.
