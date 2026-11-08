@@ -24,6 +24,21 @@ First pairing: open Mirror and tap Pair phone, then in the Retink app tap "2. Pa
 
 `generated/` and `test/golden/` come from the Android repo (`ynsgnr/retink`): run its `scripts/sync-fork.sh` with this repo at `../crosspoint-reader`; never edit them by hand.
 
+## Emoji (optional font)
+The built-in UI fonts have no emoji, so chats show a placeholder for them. `fonts/LibroEmoji/` is an SD-card font with emoji:
+1. Copy the `fonts/LibroEmoji` folder to `/fonts/` on the SD card (or upload it through the device's web interface).
+2. On the device: **Settings > Reader > Font Family > LibroEmoji**.
+
+It is also your reading font from then on. Chat lines with an emoji are drawn in it, lines without keep the built-in UI font
+(the firmware's UI fallback is per string). Emoji built from several characters show as their parts (a skin tone as a
+swatch, a flag as two letters). Rebuild with `fonts/build-emoji-font.sh`.
+
+LibroEmoji is a modified version of [Libron](https://github.com/nicoverbruggen/libron) by Nico Verbruggen (based on Readerly
+and Newsreader) with Google's [Noto Emoji](https://github.com/google/fonts/tree/main/ofl/notoemoji) as the fallback for
+the characters Libron lacks. Both are licensed under the SIL Open Font License 1.1; the font files stay under that license
+(`fonts/LibroEmoji/LICENSE-*.txt`, changes in `FONTLOG.txt`). It is not an official Libron release, and it does not use
+the reserved name "Libron".
+
 ## Host tests and simulator
 ```bash
 cmake -S mirror -B build-mirror && cmake --build build-mirror -j && ctest --test-dir build-mirror --output-on-failure
