@@ -1,0 +1,10 @@
+# Host tests of the portable macro table. The firmware does not use this file (see platformio_macro.ini).
+cmake_minimum_required(VERSION 3.16)
+project(macro_host CXX)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+add_compile_options(-Wall -Wextra)
+add_executable(macro_tests tests/test_macro.cpp)
+target_include_directories(macro_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+enable_testing()
+add_test(NAME macro_tests COMMAND macro_tests)

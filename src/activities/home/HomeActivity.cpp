@@ -35,22 +35,31 @@
 #else
 #define MIRROR_ENABLED 0
 #endif
+#if defined(CROSSPOINT_MIRROR) && defined(CROSSPOINT_MACRO)
+#include "MacroActivity.h"
+#define MACRO_ENABLED 1
+#else
+#define MACRO_ENABLED 0
+#endif
 
 #if MIRROR_ENABLED
 // The list Home shows Library, Sync Now (when set up), Mirror and More...; the rest is under More... The cover grid
 // keeps its own tabs.
-enum class MirrorHomeItem { Library, Sync, Mirror, More };
+enum class MirrorHomeItem { Library, Sync, Mirror, Macro, More };
 
 static MirrorHomeItem mirrorHomeItem(int menuIndex, bool hasSync) {
   if (menuIndex == 0) return MirrorHomeItem::Library;
   if (hasSync && menuIndex == 1) return MirrorHomeItem::Sync;
-  return menuIndex == (hasSync ? 2 : 1) ? MirrorHomeItem::Mirror : MirrorHomeItem::More;
+  const int mirrorIndex = hasSync ? 2 : 1;
+  if (menuIndex == mirrorIndex) return MirrorHomeItem::Mirror;
+  if (MACRO_ENABLED && menuIndex == mirrorIndex + 1) return MirrorHomeItem::Macro;
+  return MirrorHomeItem::More;
 }
 #endif
 
 int HomeActivity::getMenuItemCount() const {
 #if MIRROR_ENABLED
-  if (!coverGridUi) return static_cast<int>(recentBooks.size()) + (hasSync ? 4 : 3);
+  if (!coverGridUi) return static_cast<int>(recentBooks.size()) + (hasSync ? 4 : 3) + MACRO_ENABLED;
 #endif
   int count = 4;  // File Browser, Library, File transfer, Settings
   if (hasSync) {
@@ -58,6 +67,9 @@ int HomeActivity::getMenuItemCount() const {
   }
   if (MIRROR_ENABLED) {
     count++;  // Mirror is the last item
+  }
+  if (MACRO_ENABLED) {
+    count++;  // Macro follows Mirror as the last item
   }
   if (!recentBooks.empty()) {
     count += recentBooks.size();
@@ -287,7 +299,7 @@ void HomeActivity::onEnter() {
 #if MIRROR_ENABLED
   if (!coverGridUi && initialMenuItem != HomeMenuItem::NONE) {
     // Coming back from a screen under More... selects More...; Library selects itself.
-    selectorIndex = base + (initialMenuItem == HomeMenuItem::LIBRARY ? 0 : (hasSync ? 3 : 2));
+    selectorIndex = base + (initialMenuItem == HomeMenuItem::LIBRARY ? 0 : (hasSync ? 3 : 2) + MACRO_ENABLED);
   }
 #endif
 
@@ -362,6 +374,9 @@ void HomeActivity::loop() {
         case MirrorHomeItem::Mirror:
           onMirrorOpen();
           break;
+        case MirrorHomeItem::Macro:
+          onMacroOpen();
+          break;
         case MirrorHomeItem::More:
           onMoreOpen();
           break;
@@ -369,11 +384,15 @@ void HomeActivity::loop() {
       return;
     }
 #endif
-    if (MIRROR_ENABLED && selectorIndex == getMenuItemCount() - 1) {
+    if (MACRO_ENABLED && selectorIndex == getMenuItemCount() - 1) {
+      onMacroOpen();
+      return;
+    }
+    if (MIRROR_ENABLED && selectorIndex == getMenuItemCount() - 1 - (MACRO_ENABLED ? 1 : 0)) {
       onMirrorOpen();
       return;
     }
-    if (hasSync && selectorIndex == getMenuItemCount() - 1 - (MIRROR_ENABLED ? 1 : 0)) {
+    if (hasSync && selectorIndex == getMenuItemCount() - 1 - (MIRROR_ENABLED ? 1 : 0) - (MACRO_ENABLED ? 1 : 0)) {
       startOpdsSync(*this, renderer, mappedInput, silentRestart);
       return;
     }
@@ -599,6 +618,10 @@ void HomeActivity::render(RenderLock&&) {
   }
   menuItems.push_back("Mirror");  // not translated: keeps the fork out of lib/I18n
   menuIcons.push_back(Transfer);
+#if MACRO_ENABLED
+  menuItems.push_back("Macro");
+  menuIcons.push_back(Transfer);
+#endif
   menuItems.push_back("More...");
   menuIcons.push_back(Plugins);
 #else
@@ -671,6 +694,13 @@ void HomeActivity::onMoreOpen() {
                                                                      : hasOpdsServers ? 1
                                                                                       : 0,
                                                                      hasOpdsServers));
+#endif
+}
+
+void HomeActivity::onMacroOpen() {
+#if MACRO_ENABLED
+  // Replace Home (not push), as for Mirror: Home's buffers are freed before the BLE stack starts.
+  activityManager.replaceActivity(std::make_unique<MacroActivity>(renderer, mappedInput));
 #endif
 }
 

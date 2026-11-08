@@ -67,7 +67,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"env":"x4pro-mirror","asset":"firmware-x4pro-mirror.bin"},{"env":"mirror","asset":"firmware-mirror.bin"}]' || '[{"env":"x4pro-mirror","asset":"firmware-x4pro-mirror.bin"}]') }}
+        include: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '[{"env":"x4pro-macro","asset":"firmware-x4pro-mirror.bin"},{"env":"macro","asset":"firmware-mirror.bin"}]' || '[{"env":"x4pro-macro","asset":"firmware-x4pro-mirror.bin"}]') }}
     steps:
       - uses: actions/checkout@v6
         with:

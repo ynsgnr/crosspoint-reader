@@ -19,6 +19,8 @@ class MirrorHid {
   void onLinkDown() { subscribed_ = false; }
   // Key down, then up. `mods` is the HID modifier byte.
   bool tap(uint16_t connHandle, uint8_t mods, uint8_t usage);
+  // Consumer-control (media key) press and release.
+  bool tapConsumer(uint16_t connHandle, uint16_t usage);
   // Shift tap, then the System Wake Up usage; which one wakes the phone depends on the phone.
   bool wake(uint16_t connHandle);
 
@@ -39,6 +41,7 @@ class MirrorHid {
   std::atomic<bool> subscribed_{false};
   Subscription subscription_{subscribed_};
   NimBLECharacteristic* keyboardIn_ = nullptr;
+  NimBLECharacteristic* consumerIn_ = nullptr;
   NimBLECharacteristic* systemIn_ = nullptr;
 };
 

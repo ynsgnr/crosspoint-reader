@@ -42,6 +42,7 @@ class MirrorBle {
   // Keyboard: false until the phone's HID host has subscribed, or when the link is down.
   bool keyboardReady() const { return hid_ && connected_.load() && hid_->ready(); }
   bool typeKey(uint8_t mods, uint8_t usage) { return keyboardReady() && hid_->tap(connHandle_.load(), mods, usage); }
+  bool typeConsumer(uint16_t usage) { return keyboardReady() && hid_->tapConsumer(connHandle_.load(), usage); }
   bool wakePhone() { return keyboardReady() && hid_->wake(connHandle_.load()); }
 
   // True once after a connect, disconnect or pairing change.
