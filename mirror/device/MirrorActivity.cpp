@@ -47,7 +47,9 @@ void MirrorActivity::onExit() {
 }
 
 void MirrorActivity::startBle() {
-  startup_ = ble_.start(kDeviceName, session_->capabilities(gfx_, kDeviceName, mirror::gen::kFeatureHidKeyboard));
+  startup_ = ble_.start(
+      kDeviceName,
+      session_->capabilities(gfx_, kDeviceName, mirror::gen::kFeatureHidKeyboard | mirror::gen::kFeatureLocalEvents));
 }
 
 void MirrorActivity::setScreen(Screen s) {
