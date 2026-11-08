@@ -24,6 +24,11 @@
 #else
 #define MIRROR_ENABLED 0
 #endif
+#if defined(CROSSPOINT_MIRROR) && defined(CROSSPOINT_MACRO)
+#define MACRO_ENABLED 1
+#else
+#define MACRO_ENABLED 0
+#endif
 
 namespace fui = freeink::ui;
 namespace {
@@ -290,13 +295,15 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
-  static constexpr const uint8_t* ICONS[] = {FolderIcon,    LibraryIcon, BlocksIcon,  TransferIcon,
-                                             Settings2Icon, SyncIcon,    TransferIcon /* Mirror */};
+  static constexpr const uint8_t* ICONS[] = {
+      FolderIcon,  LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon, SyncIcon, TransferIcon /* Mirror */,
+      TransferIcon /* Macro */};
   int count = 0;
-  for (int i = 0; i < 7; ++i) {
+  for (int i = 0; i < 8; ++i) {
     if (i == 2 && !hasOpds) continue;
     if (i == 5 && !hasSync) continue;
     if (i == 6 && !MIRROR_ENABLED) continue;
+    if (i == 7 && !MACRO_ENABLED) continue;
     auto& tab = tabItems[count];
     tab.value = books->size() + count;
     tab.selected = selected == tab.value;
@@ -314,9 +321,10 @@ void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
     const auto& self = *static_cast<CoverGridHomeUi*>(user);
     const int index = tab.value - static_cast<int>(self.books->size());
     // Map the visible tab index back to its slot (OPDS, Sync and Mirror are optional).
-    const bool present[] = {true, true, self.hasOpds, true, true, self.hasSync, MIRROR_ENABLED != 0};
+    const bool present[] = {true, true,         self.hasOpds,        true,
+                            true, self.hasSync, MIRROR_ENABLED != 0, MACRO_ENABLED != 0};
     int icon = 6;  // never read when the index is valid; keeps the lookup inside ICONS
-    for (int slot = 0, seen = -1; slot < 7; ++slot) {
+    for (int slot = 0, seen = -1; slot < 8; ++slot) {
       if (present[slot] && ++seen == index) {
         icon = slot;
         break;

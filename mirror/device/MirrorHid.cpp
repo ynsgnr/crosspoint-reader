@@ -168,7 +168,7 @@ void MirrorHid::create(NimBLEServer* server) {
 
   keyboardIn_ = addReport(hid, kReportKeyboard, 1, kRead | NIMBLE_PROPERTY::NOTIFY, 8);
   keyboardIn_->setCallbacks(&subscription_);
-  addReport(hid, kReportConsumer, 1, kRead | NIMBLE_PROPERTY::NOTIFY, 2);
+  consumerIn_ = addReport(hid, kReportConsumer, 1, kRead | NIMBLE_PROPERTY::NOTIFY, 2);
   systemIn_ = addReport(hid, kReportSystem, 1, kRead | NIMBLE_PROPERTY::NOTIFY, 1);
   addReport(hid, kReportKeyboard, 2,
             kRead | NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR | NIMBLE_PROPERTY::WRITE_ENC |
@@ -192,6 +192,17 @@ bool MirrorHid::tap(uint16_t connHandle, uint8_t mods, uint8_t usage) {
   const bool down = sendKeys(connHandle, mods, usage);
   vTaskDelay(pdMS_TO_TICKS(15));  // hosts drop a press and release that arrive in the same connection event
   const bool up = sendKeys(connHandle, 0, 0);  // always release, even if the press failed
+  vTaskDelay(pdMS_TO_TICKS(15));
+  return down && up;
+}
+
+bool MirrorHid::tapConsumer(uint16_t connHandle, uint16_t usage) {
+  if (!ready()) return false;
+  const uint8_t pressed[2] = {static_cast<uint8_t>(usage & 0xFF), static_cast<uint8_t>(usage >> 8)};
+  const uint8_t released[2] = {0, 0};
+  const bool down = consumerIn_->notify(pressed, sizeof pressed, connHandle);
+  vTaskDelay(pdMS_TO_TICKS(15));
+  const bool up = consumerIn_->notify(released, sizeof released, connHandle);  // always release
   vTaskDelay(pdMS_TO_TICKS(15));
   return down && up;
 }
