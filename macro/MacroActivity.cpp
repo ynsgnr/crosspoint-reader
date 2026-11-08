@@ -4,7 +4,6 @@
 #include <cstdio>
 #include <vector>
 
-#include "device/MirrorSettings.h"
 #include "device/ScreenText.h"
 
 namespace {
@@ -37,21 +36,17 @@ void MacroActivity::onEnter() {
   cursor_ = 0;
   fullNext_ = true;
   connected_ = hidReady_ = false;
-  if (!mirror::settings::keyboardEnabled()) {
-    start_ = Start::KeyboardOff;
-  } else {
-    // The capabilities characteristic is the Mirror protocol's; the deck has no app session, so it is empty.
-    switch (ble_.start(kDeviceName, std::vector<uint8_t>{}, true)) {
-      case mirror::MirrorBle::StartResult::Ok:
-        start_ = Start::Ok;
-        break;
-      case mirror::MirrorBle::StartResult::NoMemory:
-        start_ = Start::NoMemory;
-        break;
-      default:
-        start_ = Start::Failed;
-        break;
-    }
+  // The capabilities characteristic is the Mirror protocol's; the deck has no app session, so it is empty.
+  switch (ble_.start(kDeviceName, std::vector<uint8_t>{})) {
+    case mirror::MirrorBle::StartResult::Ok:
+      start_ = Start::Ok;
+      break;
+    case mirror::MirrorBle::StartResult::NoMemory:
+      start_ = Start::NoMemory;
+      break;
+    default:
+      start_ = Start::Failed;
+      break;
   }
   requestUpdate();
 }
@@ -127,16 +122,13 @@ void MacroActivity::render(RenderLock&&) {
     text.line("Macro deck", true);
     text.gap();
     bool grid = false;
-    if (start_ == Start::KeyboardOff) {
-      text.line("Keyboard is off.");
-      text.line("In Mirror: Keyboard on, then pair.");
-    } else if (start_ == Start::NoMemory) {
+    if (start_ == Start::NoMemory) {
       text.line("Not enough free memory for Bluetooth.");
     } else if (start_ == Start::Failed) {
       text.line("Bluetooth could not start.");
     } else if (ble_.bondCount() == 0) {
       text.line("No host paired.");
-      text.line("In Mirror: Pair phone (Keyboard on).");
+      text.line("In Mirror: Pair phone.");
     } else if (!ble_.connected()) {
       text.line("Waiting for the paired host");
     } else {

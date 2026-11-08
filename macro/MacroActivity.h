@@ -1,7 +1,7 @@
 #pragma once
 #if defined(CROSSPOINT_MIRROR) && defined(CROSSPOINT_MACRO)
 // Macro deck screen: a 3x3 grid of shortcuts sent over the Mirror module's BLE HID keyboard. It only reuses the
-// bond made in Mirror (Keyboard on); pairing stays there. See macro/README.md.
+// bond made in Mirror; pairing stays there. See macro/README.md.
 #include <mutex>
 
 #include "Macro.h"
@@ -19,13 +19,13 @@ class MacroActivity final : public Activity {
   bool preventAutoSleep() override { return ble_.connected(); }
 
  private:
-  enum class Start { KeyboardOff, Ok, NoMemory, Failed };
+  enum class Start { Ok, NoMemory, Failed };
 
   bool moveCursor();
   void sendMacro(int index);
 
   mirror::MirrorBle ble_;
-  Start start_ = Start::KeyboardOff;
+  Start start_ = Start::Failed;
   std::mutex mutex_;    // cursor_ and note_: written by loop(), read by the render task
   int cursor_ = 0;      // selected key on boards without touch
   char note_[48] = "";  // one line of feedback

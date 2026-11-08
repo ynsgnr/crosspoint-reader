@@ -14,7 +14,7 @@ tests/               host test of the table
 ## Use
 1. In **Mirror**: switch **Keyboard** on, tap **Pair phone**, and pair the host (a phone or a computer; the passkey shows on the device).
 2. Open **Macro** from Home. With a bonded host in range it connects by itself; the grid shows once it is connected.
-3. Without Keyboard on or a bond, the screen says what to do in Mirror. Pairing is never done here.
+3. Without a bond, the screen says what to do in Mirror. Pairing is never done here.
 
 Edit the table in `Macro.h` to change the keys, then rebuild. Consumer usages are from the HID Usage Tables, page 0x0C.
 
