@@ -53,10 +53,11 @@ void MacroActivity::onEnter() {
 void MacroActivity::onExit() {
   ble_.stop();
   if (canSwitch()) macro::settings::setBleEnabled(false);  // the next visit starts on USB again
+  reboot();                                                // every way out of Macro, not only Back and Home
   Activity::onExit();
 }
 
-// Brings up the active transport and stops Bluetooth when USB is active. TinyUSB stays up once started (see leave()).
+// Brings up the active transport and stops Bluetooth when USB is active. TinyUSB stays up once started (see reboot()).
 void MacroActivity::startTransport() {
   connected_ = hidReady_ = false;
   if (!useBle_) {
@@ -86,13 +87,18 @@ void MacroActivity::toggleTransport() {
   startTransport();
 }
 
-// Once TinyUSB has started it cannot be stopped, so leaving after that reboots to Home (and hands the USB PHY back).
-void MacroActivity::leave() {
-  if (canSwitch()) macro::settings::setBleEnabled(false);  // a reboot below skips onExit()
+void MacroActivity::leave() { finish(); }  // onExit() does the rest, whichever way Macro is left
+
+// TinyUSB cannot be stopped, so after USB was used Macro ends with a reboot to Home. It detaches from the host first
+// and hands the USB PHY back to the serial port, as USB Drive does.
+void MacroActivity::reboot() {
 #if MACRO_HAS_USB
-  if (usb_.started()) return restartToHomeAfterStorageHandoff();
+  if (!usb_.started() || rebooting_) return;
+  rebooting_ = true;
+  usb_.detach();
+  delay(20);
+  restartToHomeAfterStorageHandoff();
 #endif
-  finish();
 }
 
 bool MacroActivity::linkUp() const {

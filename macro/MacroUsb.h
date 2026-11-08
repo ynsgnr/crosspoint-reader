@@ -16,9 +16,11 @@ namespace macro {
 class MacroUsb {
  public:
   // Registers the HID interfaces and starts TinyUSB. TinyUSB cannot be stopped again: leave the screen with
-  // restartToHomeAfterStorageHandoff(). False when the heap or the USB stack refused.
+  // MacroActivity::reboot(). False when the heap or the USB stack refused.
   bool start();
   bool started() const { return started_; }
+  // Detaches from the host and waits for it to let go. Call before the reboot that gives the USB PHY back.
+  void detach();
   bool connected() const;  // the host has enumerated the device
   bool ready() const;      // the host accepts HID input reports
   bool tapKey(uint8_t mods, uint8_t usage);

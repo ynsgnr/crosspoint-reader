@@ -29,6 +29,7 @@ class MacroActivity final : public Activity {
   void startTransport();
   void toggleTransport();
   void leave();
+  void reboot();
   bool linkUp() const;     // the host is connected over the active transport
   bool linkReady() const;  // ... and accepts keyboard input
   bool canSwitch() const { return MACRO_HAS_USB != 0; }
@@ -46,5 +47,6 @@ class MacroActivity final : public Activity {
   bool hidReady_ = false;
   int partials_ = 0;  // partial refreshes since the last full one
   bool fullNext_ = true;
+  bool rebooting_ = false;
 };
 #endif

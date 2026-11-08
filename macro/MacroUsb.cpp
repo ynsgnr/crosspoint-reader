@@ -10,6 +10,7 @@
 #include <new>
 
 extern "C" bool tud_mounted(void);
+extern "C" bool tud_disconnect(void);
 extern "C" bool tud_hid_n_ready(uint8_t instance);
 
 namespace macro {
@@ -30,6 +31,12 @@ bool MacroUsb::start() {
   gConsumer->begin();
   started_ = USB.begin();
   return started_;
+}
+
+void MacroUsb::detach() {
+  if (!started_) return;
+  tud_disconnect();  // drops the D+ pull-up, so the host sees the keyboard unplugged
+  for (int i = 0; i < 50 && tud_mounted(); ++i) delay(10);
 }
 
 bool MacroUsb::connected() const { return started_ && tud_mounted(); }
