@@ -30,8 +30,9 @@ The built-in UI fonts have no emoji, so chats show a placeholder for them. `font
 2. On the device: **Settings > Reader > Font Family > LibroEmoji**.
 
 It is also your reading font from then on. Chat lines with an emoji are drawn in it, lines without keep the built-in UI font
-(the firmware's UI fallback is per string). Emoji built from several characters show as their parts (a skin tone as a
-swatch, a flag as two letters). Rebuild with `fonts/build-emoji-font.sh`.
+(the firmware's UI fallback is per string). The firmware draws one glyph per character, so the phone simplifies emoji
+built from several (skin tone dropped, a joined emoji keeps its first part, a flag becomes its letters). Rebuild with
+`fonts/build-emoji-font.sh`.
 
 LibroEmoji is a modified version of [Libron](https://github.com/nicoverbruggen/libron) by Nico Verbruggen (based on Readerly
 and Newsreader) with Google's [Noto Emoji](https://github.com/google/fonts/tree/main/ofl/notoemoji) as the fallback for
