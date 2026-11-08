@@ -61,13 +61,14 @@ void MirrorActivity::setScreen(Screen s) {
   cursor_ = 0;
   armed_ = kNone;  // a second tap must follow the first on the same screen
   enterDueMs_ = 0;
+  holdDir_ = 0;
   note_.clear();  // nothing typed is kept when a screen is left
 }
 
 bool MirrorActivity::showsChat() const { return screen_ == Screen::Status && session_ && session_->active(); }
 
 void MirrorActivity::loop() {
-  // Back goes up one level: unlock pad -> where it was opened, chat -> menu, menu or status page -> leave Mirror.
+  // Back goes up one level: unlock pad -> chat or status page, chat -> menu, menu or status page -> leave Mirror.
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     bool leave = false;
     {
@@ -150,9 +151,15 @@ void MirrorActivity::buildActions() {
   if (screen_ == Screen::Menu && session_->active()) buttons_.add("Back to chat", kBackToChat);
   if (!phone) buttons_.add("Start mirror on phone", kStartMirror);  // the phone's app is not linked yet
   if (phoneLocked()) buttons_.add("Unlock phone", kUnlock);
-  if (phone)
+  if (phone && !phone->locked)  // an app opened behind the lock screen shows nothing
     for (size_t i = 0; i < phone->apps.size(); ++i)
       buttons_.add(phone->apps[i].name, kLaunchApp + static_cast<int>(i), /*half=*/true);
+}
+
+std::vector<int> MirrorActivity::buttonIds() const {
+  std::vector<int> ids;
+  for (int i = 0; i < buttons_.count(); ++i) ids.push_back(buttons_.id(i));
+  return ids;
 }
 
 int MirrorActivity::buttonsTop() const { return renderer.getScreenHeight() / 3; }
@@ -183,7 +190,9 @@ void MirrorActivity::runAction(int action) {
       bondsForgotten_ = true;
       break;
     case kStartMirror:  // the chord makes the phone start its app session
-      note_ = ble_.typeKey(mirror::kDefaultChord.mods, mirror::kDefaultChord.key) ? "Start sent" : "Keyboard not ready";
+      note_ = ble_.typeKey(mirror::kDefaultChord.mods, mirror::kDefaultChord.key)
+                  ? "Start sent (needs Retink's Accessibility on)"
+                  : "Keyboard not ready";
       break;
     case kUnlock:
       openUnlock();
@@ -202,6 +211,7 @@ bool MirrorActivity::loopStatus() {
   buildActions();
   const int n = buttons_.count();
   if (n == 0) return false;
+  if (buttonIds() != drawnButtons_) return true;  // the screen shows other buttons: no press until they are redrawn
   bool redraw = false;
   int press = -1;
   int x = 0, y = 0;
@@ -248,7 +258,7 @@ bool MirrorActivity::loopChat() {
   if (downPressed || swipe == MappedInputManager::SwipeDir::Up) step = -1;
   const uint32_t now = millis();
   if (upPressed || downPressed) {
-    holdDir_ = held;  // a new press: repeats start after a pause
+    holdDir_ = step;  // a new press: its own direction, repeats after a pause
     nextRepeatMs_ = now + kRepeatDelayMs;
   } else if (held == 0 || held != holdDir_) {
     holdDir_ = 0;
@@ -295,6 +305,7 @@ void MirrorActivity::drawStatus() {
     if (bondsForgotten_) text.line("Forgotten: also remove it in the phone's Bluetooth settings");
     buildActions();
     buttons_.draw(renderer, buttonsTop(), cursor_, !mappedInput.hasTouch());
+    drawnButtons_ = buttonIds();
   }
   text.moveTo(renderer.getScreenHeight() - 3 * text.step());
   if (!note_.empty()) text.line(note_);
@@ -327,15 +338,13 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
   statusShown_ = false;
   forceFull_ |= session_->takeTemplateSwitched();
   forceFull_ |= session_->takeResyncHappened();
-  const std::string text = mirror::statusBandText(session_->phoneStatus());
   const bool dark = mirror::bandDarkMode(session_->phoneStatus());
-  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, text, dark);
+  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, dark);
   const mirror::RefreshPlan plan = policy_.plan(dirty, gfx_.width(), gfx_.height() - mirror::statusBandHeight(gfx_),
                                                 t->refreshOverrides(), forceFull_);
   forceFull_ = false;
-  const std::string band = text + (dark ? "|dark" : "");
-  const bool bandChanged = band != drawnBand_;
-  drawnBand_ = band;
+  const bool bandChanged = dark != drawnDark_;
+  drawnDark_ = dark;
   return plan.kind == mirror::RefreshKind::None && bandChanged ? mirror::RefreshKind::Partial : plan.kind;
 }
 

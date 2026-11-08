@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
   hooks.afterLine = [&](const std::string& line, Session& s) {
     if (!s.active() || (line.rfind("tx ", 0) != 0 && line.rfind("corrupt ", 0) != 0)) return;
     const bool force = s.takeTemplateSwitched() | s.takeResyncHappened();
-    const DirtyRects d = renderFrame(*s.active(), gfx, statusBandText(s.phoneStatus()), bandDarkMode(s.phoneStatus()));
+    const DirtyRects d = renderFrame(*s.active(), gfx, bandDarkMode(s.phoneStatus()));
     const RefreshPlan p = policy.plan(d, W, H, s.active()->refreshOverrides(), force);
     if (p.kind == RefreshKind::None) return;
     char name[64];

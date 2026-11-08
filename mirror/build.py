@@ -21,8 +21,8 @@ env.Replace(SRC_FILTER="+<*> -<.git/> -<.svn/> $MIRROR_SOURCES")  # noqa: F821
 
 
 def _git_rev():
-    """Short commit of the source being built, with "+" when the tree has local changes. On a pull request CI builds a
-    merge commit nobody knows, so the PR's own head commit is shown instead."""
+    """Short commit of the source being built, with "+" for changes not committed anywhere in the repo (untracked files
+    too). On a pull request CI builds a merge commit nobody knows, so the PR's own head commit is shown instead."""
     import json
     import os
     import subprocess
@@ -37,7 +37,7 @@ def _git_rev():
             pass
     try:
         rev = subprocess.check_output(["git", "rev-parse", "--short=8", "HEAD"], cwd=root, text=True).strip()
-        dirty = subprocess.call(["git", "diff", "--quiet", "HEAD", "--", "mirror"], cwd=root) != 0
+        dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() != ""
         return rev + ("+" if dirty else "")
     except (OSError, subprocess.CalledProcessError):
         return "unknown"

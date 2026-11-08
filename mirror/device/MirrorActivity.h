@@ -6,6 +6,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <vector>
 
 #include "activities/Activity.h"
 #include "core/Chord.h"
@@ -54,6 +55,7 @@ class MirrorActivity final : public Activity {
   bool loopChat();
   void buildActions();
   int buttonsTop() const;
+  std::vector<int> buttonIds() const;
   void runAction(int action);
   void drawStatus();
   mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
@@ -84,12 +86,13 @@ class MirrorActivity final : public Activity {
   bool bondsForgotten_ = false;
   uint32_t enterDueMs_ = 0;  // when to send Enter after waking the phone (0 = none pending)
   mirror::ButtonColumn buttons_;
-  int armed_ = kNone;  // a destructive action waiting for its second tap
-  int holdDir_ = 0;    // the scroll button held in the chat: 1 up, -1 down, 0 none
+  std::vector<int> drawnButtons_;  // the buttons the screen shows: a tap is only read against these
+  int armed_ = kNone;              // a destructive action waiting for its second tap
+  int holdDir_ = 0;                // the scroll button held in the chat: 1 up, -1 down, 0 none
   uint32_t nextRepeatMs_ = 0;
 
   // Drawing state.
-  std::string drawnBand_;
+  bool drawnDark_ = false;  // the band's dot as last drawn
   bool forceFull_ = true;
   bool statusShown_ = false;
   int subScreenPartials_ = 0;  // partial refreshes since the last full one on the non-chat screens

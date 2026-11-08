@@ -353,7 +353,7 @@ static void testSessionButtons() {
         d.out[0].templateId == 1);
   CHECK(!d.session.onButton(Button::Left));
   CHECK(d.out.size() == 1);
-  // A long press jumps to the ends: one event frame each.
+  // Top and Bottom (the simulator's jumps to the ends) are one event frame each.
   CHECK(d.session.onButton(Button::Top) && d.session.onButton(Button::Bottom) && d.out.size() == 3);
   CHECK(d.out[1].has(gen::kFlagEvent) && d.out[2].has(gen::kFlagEvent));
 }
@@ -486,7 +486,7 @@ static void testControlChannel() {
   CHECK(d.out.size() == 1 && gen::ControlCommand::decode(r3, c) && c.command == gen::kCmdLaunchApp && c.arg == 1);
 }
 
-static void testChordRules() {
+static void testDefaultChordAndDigits() {
   using namespace mirror;
   CHECK(kDefaultChord.mods == (kModCtrl | kModAlt | kModShift) && kDefaultChord.key == 0x10);  // Ctrl+Alt+Shift+M
   CHECK(digitUsage(1) == 0x1E && digitUsage(9) == 0x26 && digitUsage(0) == 0x27);
@@ -506,22 +506,21 @@ static void testBandedGfxLeavesTheTopBandFree() {
   r.onFull(bytes.data(), bytes.size());
   sim::SimGfx frame(480, 800);
   const int band = statusBandHeight(frame);
-  renderFrame(r, frame, "");
+  renderFrame(r, frame, false);
   const int rad = (band - 6) / 2, cx = 8 + rad, cy = band / 2;
-  bool bandClear = true;  // nothing but the dot in the band: the template stays below it
+  const int hintLeft = 480 - 8 - frame.textWidth(Font::Small, "Back: menu");
+  bool bandClear = true;  // between the dot and the hint the band is empty: the template stays below it
   for (int y = 0; y < band; ++y)
-    for (int x = cx + rad + 1; x < 480; ++x) bandClear &= !frame.black(x, y);
+    for (int x = cx + rad + 1; x < hintLeft; ++x) bandClear &= !frame.black(x, y);
   CHECK(bandClear);
-  CHECK(frame.black(cx - rad, cy) && !frame.black(cx, cy));  // dark mode off: a hollow dot
-  renderFrame(r, frame, statusBandText(gen::PhoneStatus{true, 7, false, {}}),
-              bandDarkMode(gen::PhoneStatus{true, 7, false, {}}));
-  CHECK(frame.black(cx - rad, cy) && frame.black(cx, cy));  // dark mode on: a filled dot
   bool hintDrawn = false;
   for (int y = 0; y < band; ++y)
-    for (int x = cx + rad + 1; x < 480; ++x) hintDrawn |= frame.black(x, y);
+    for (int x = hintLeft; x < 480; ++x) hintDrawn |= frame.black(x, y);
   CHECK(hintDrawn);
-  CHECK(statusBandText(std::nullopt) == "Back: menu");
-  CHECK(!bandDarkMode(std::nullopt) && bandDarkMode(gen::PhoneStatus{true, 7, false, {}}));
+  CHECK(frame.black(cx - rad, cy) && !frame.black(cx, cy));  // dark mode off: a hollow dot
+  renderFrame(r, frame, bandDarkMode(gen::PhoneStatus{true, 7, false, {}}));
+  CHECK(frame.black(cx - rad, cy) && frame.black(cx, cy));  // dark mode on: a filled dot
+  CHECK(!bandDarkMode(std::nullopt));
 }
 
 static bool runGolden(const std::string& path) {
@@ -574,7 +573,7 @@ int main() {
   testChatLayoutStates();
   testSessionErrors();
   testControlChannel();
-  testChordRules();
+  testDefaultChordAndDigits();
   testBandedGfxLeavesTheTopBandFree();
   testSessionButtons();
   testChatOpSemantics();

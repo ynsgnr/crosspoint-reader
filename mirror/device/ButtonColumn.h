@@ -44,12 +44,6 @@ class ButtonColumn {
     }
   }
 
-  // Bottom edge of the last button.
-  int bottom(const GfxRenderer& r, int top) const {
-    const std::vector<Box> boxes = layout(r, top);
-    return boxes.empty() ? top : boxes.back().y + boxes.back().h;
-  }
-
  private:
   struct Item {
     std::string label;
