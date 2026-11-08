@@ -39,7 +39,6 @@ inline constexpr uint8_t kCmdHidStatus = 3;
 inline constexpr uint8_t kCmdLaunchApp = 5;
 inline constexpr uint8_t kFeaturePhoneStatus = 1;
 inline constexpr uint8_t kFeatureHidKeyboard = 2;
-inline constexpr uint8_t kFeatureLocalEvents = 4;
 inline constexpr const char* kUuidService = "6d1a0001-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidData = "6d1a0002-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidEvent = "6d1a0003-7e1c-4f3b-9a53-5c0b2d9a11e0";
