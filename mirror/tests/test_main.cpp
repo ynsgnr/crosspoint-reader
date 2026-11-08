@@ -1,6 +1,7 @@
 // Host tests for the portable mirror layer. No framework: CHECK prints and counts failures.
 #include <dirent.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
