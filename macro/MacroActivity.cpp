@@ -52,6 +52,7 @@ void MacroActivity::onEnter() {
 
 void MacroActivity::onExit() {
   ble_.stop();
+  if (canSwitch()) macro::settings::setBleEnabled(false);  // the next visit starts on USB again
   Activity::onExit();
 }
 
@@ -87,6 +88,7 @@ void MacroActivity::toggleTransport() {
 
 // Once TinyUSB has started it cannot be stopped, so leaving after that reboots to Home (and hands the USB PHY back).
 void MacroActivity::leave() {
+  if (canSwitch()) macro::settings::setBleEnabled(false);  // a reboot below skips onExit()
 #if MACRO_HAS_USB
   if (usb_.started()) return restartToHomeAfterStorageHandoff();
 #endif

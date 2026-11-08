@@ -18,7 +18,7 @@ tests/               host test of the table
 **USB (default, X4 Pro):** open **Macro** and plug the USB cable into the host; the 12 keys fill the screen once the host has
 enumerated the device (no title or text). A key turns black while it is touched or sent. Home / Back closes. The X4 Pro appears as a keyboard while Macro is open. TinyUSB cannot be stopped, so closing Macro reboots to Home.
 
-**Bluetooth:** while no host is connected the screen shows a switch; tap it (or press Confirm) to turn Bluetooth on or off. The choice is saved.
+**Bluetooth:** while no host is connected the screen shows a switch; tap it (or press Confirm) to turn Bluetooth on or off. The choice lasts until Macro is closed; the next visit starts on USB again.
 1. In **Mirror**, tap **Pair phone** and pair the host (the passkey shows on the device).
 2. Open **Macro**. With a bonded host in range it connects by itself; pairing is never done here.
 
