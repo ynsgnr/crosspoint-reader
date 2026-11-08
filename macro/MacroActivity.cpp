@@ -7,6 +7,7 @@
 #include "MacroSettings.h"
 #include "SilentRestart.h"
 #include "device/ScreenText.h"
+#include "platform/UsbSerialJtagHandoff.h"
 
 namespace {
 constexpr char kDeviceName[] = "E-Ink Reader";  // the name Mirror advertises: same device, same bond
@@ -97,7 +98,8 @@ void MacroActivity::reboot() {
   rebooting_ = true;
   usb_.detach();
   delay(20);
-  restartToHomeAfterStorageHandoff();
+  restartToHomeAfterStorageHandoff();  // does not return, except while the device goes to sleep
+  handoffUsbOtgToSerialJtag();         // sleep keeps the USB PHY setting through wake, so give it back now
 #endif
 }
 
