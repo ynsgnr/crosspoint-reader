@@ -1,6 +1,7 @@
 // Host tests for the portable mirror layer. No framework: CHECK prints and counts failures.
 #include <dirent.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <fstream>
 #include <sstream>
@@ -492,6 +493,32 @@ static void testDefaultChordAndDigits() {
   CHECK(digitUsage(1) == 0x1E && digitUsage(9) == 0x26 && digitUsage(0) == 0x27);
 }
 
+static void testMediaPlaceholder() {
+  // An image on the phone (text U+FFFC) is a small marker in its place: a line with a "v" under its middle, three
+  // dots, a line with a "^" on its middle. No sender, time or bar.
+  gen::chat::ChatState s;
+  s.messages = {{1, "Ann", "before", 0, false}, {2, "Ann", chat::kMediaText, 0, false}, {3, "Me", "after", 0, true}};
+  sim::SimGfx g(480, 800);
+  const auto items = chat::layout(g, s);
+  const auto count = [&](chat::Item::Kind k) {
+    return std::count_if(items.begin(), items.end(), [k](const chat::Item& i) { return i.kind == k; });
+  };
+  CHECK(count(chat::Item::Kind::ArrowDown) == 1 && count(chat::Item::Kind::ArrowUp) == 1);
+  const auto down = *std::find_if(items.begin(), items.end(),
+                                  [](const chat::Item& i) { return i.kind == chat::Item::Kind::ArrowDown; });
+  const auto up = *std::find_if(items.begin(), items.end(),
+                                [](const chat::Item& i) { return i.kind == chat::Item::Kind::ArrowUp; });
+  CHECK(up.r.y - down.r.y < 20);                                                          // compact
+  for (const auto& i : items) CHECK(i.text.find(chat::kMediaText) == std::string::npos);  // never drawn as text
+  chat::ChatRenderer r;
+  auto bytes = chatFull(s);
+  r.onFull(bytes.data(), bytes.size());
+  r.render(g);
+  const int cx = down.r.x + down.r.w / 2;
+  CHECK(g.black(down.r.x, down.r.y) && g.black(cx, down.r.y + down.r.h - 1) && !g.black(cx, down.r.y));     // "\/"
+  CHECK(g.black(up.r.x, up.r.y + up.r.h - 1) && g.black(cx, up.r.y) && !g.black(cx, up.r.y + up.r.h - 1));  // "/\"
+}
+
 static void testBandedGfxLeavesTheTopBandFree() {
   sim::SimGfx g(100, 100);
   BandedGfx banded(g, 20);
@@ -574,6 +601,7 @@ int main() {
   testSessionErrors();
   testControlChannel();
   testDefaultChordAndDigits();
+  testMediaPlaceholder();
   testBandedGfxLeavesTheTopBandFree();
   testSessionButtons();
   testChatOpSemantics();

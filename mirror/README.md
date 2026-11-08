@@ -24,6 +24,22 @@ First pairing: open Mirror and tap Pair phone, then in the Retink app tap "2. Pa
 
 `generated/` and `test/golden/` come from the Android repo (`ynsgnr/retink`): run its `scripts/sync-fork.sh` with this repo at `../crosspoint-reader`; never edit them by hand.
 
+## Emoji (optional font)
+The built-in UI fonts have no emoji, so chats show a placeholder for them. `fonts/LibroEmoji/` is an SD-card font with emoji:
+1. Copy the `fonts/LibroEmoji` folder to `/fonts/` on the SD card (or upload it through the device's web interface).
+2. On the device: **Settings > Reader > Font Family > LibroEmoji**.
+
+It is also your reading font from then on. Chat lines with an emoji are drawn in it, lines without keep the built-in UI font
+(the firmware's UI fallback is per string). The firmware draws one glyph per character, so the phone simplifies emoji
+built from several (skin tone dropped, a joined emoji keeps its first part, a flag becomes its letters). Rebuild with
+`fonts/build-emoji-font.sh`.
+
+LibroEmoji is a modified version of [Libron](https://github.com/nicoverbruggen/libron) by Nico Verbruggen (based on Readerly
+and Newsreader) with Google's [Noto Emoji](https://github.com/google/fonts/tree/main/ofl/notoemoji) as the fallback for
+the characters Libron lacks. Both are licensed under the SIL Open Font License 1.1; the font files stay under that license
+(`fonts/LibroEmoji/LICENSE-*.txt`, changes in `FONTLOG.txt`). It is not an official Libron release, and it does not use
+the reserved name "Libron".
+
 ## Host tests and simulator
 ```bash
 cmake -S mirror -B build-mirror && cmake --build build-mirror -j && ctest --test-dir build-mirror --output-on-failure
@@ -35,7 +51,8 @@ mismatch, scroll events) byte for byte through the real `Session` and `ChatRende
 
 ## Chat screen
 Title row (scroll marker `vN` when newer messages are below, unread badge), messages (incoming left with a thin bar, own right-aligned
-as one block with a thick bar), and the draft box with its cursor. The box is 3 lines tall and grows with the text (up to most of the
+as one block with a thick bar; an image or other non-text item, sent as U+FFFC, is a small marker: a line with a tiny "v", three dots, a line
+with a tiny "^"), and the draft box with its cursor. The box is 3 lines tall and grows with the text (up to most of the
 screen, leaving room for one message); when the draft is longer it shows the end, or the cursor's line when the cursor is further up.
 Up/Down (or the page buttons) scroll one message, holding keeps scrolling (see Scrolling); Back opens the menu.
 

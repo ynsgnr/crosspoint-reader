@@ -1,0 +1,24 @@
+LibroEmoji
+==========
+
+LibroEmoji is a Modified Version of two fonts, both licensed under the SIL Open Font License 1.1:
+
+* Libron by Nico Verbruggen, https://github.com/nicoverbruggen/libron (version v0.32)
+  Newsreader (c) 2020 The Newsreader Project Authors (http://github.com/productiontype/Newsreader)
+  Readerly (c) 2026 Nico Verbruggen (https://github.com/nicoverbruggen/readerly)
+  Libron (c) 2026 Nico Verbruggen (https://github.com/nicoverbruggen/libron)
+  with Reserved Font Name Libron.
+  License: LICENSE-Libron.txt
+
+* Noto Emoji (monochrome), Copyright 2013, 2022 Google Inc.
+  https://github.com/google/fonts/tree/main/ofl/notoemoji
+  License: LICENSE-NotoEmoji.txt
+
+Changes: Libron's four styles were combined with Noto Emoji (variable font pinned at weight 400) as a fallback for
+the characters Libron does not have, and converted to CrossPoint's bitmap .cpfont format at 8-18 pt. Libron's own
+glyphs are unchanged. Because it is modified, it does not use the Reserved Font Name "Libron".
+
+It is not an official Libron release and is not endorsed by its authors. All credit for the letterforms goes to
+Nico Verbruggen and the Newsreader Project Authors, and for the emoji to Google.
+
+Rebuild: mirror/fonts/build-emoji-font.sh in https://github.com/ynsgnr/crosspoint-reader
