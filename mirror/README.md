@@ -18,6 +18,8 @@ pio run -e mirror -t upload         # X4 (ESP32-C3)
 ```
 Without `-DCROSSPOINT_MIRROR=1` (every other environment) none of this is compiled. Use the PlatformIO core CI uses (the pioarduino 6.1.19 zip, see `.github/workflows/mirror.yml`): PlatformIO 6.2.0 from PyPI fails in the X4 core rebuild. Pull requests build the X4 Pro image only (`firmware-x4pro-mirror.bin`, artifact of the `mirror` workflow); the X4 image builds on manual dispatch.
 
+The status page's bottom line shows the build: the commit (a PR build shows the PR's head commit; `+` = uncommitted changes) and when it was compiled. `mirror/build.py` writes it to `mirror/device/BuildInfo.h` (not committed).
+
 First pairing: open Mirror and tap Pair phone, then in the Retink app tap "2. Pair e-ink device" and type the 6-digit code shown here. After that the phone reconnects by itself whenever Mirror is open.
 
 `generated/` and `test/golden/` come from the Android repo (`ynsgnr/retink`): run its `scripts/sync-fork.sh` with this repo at `../crosspoint-reader`; never edit them by hand.

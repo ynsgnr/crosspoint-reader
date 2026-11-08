@@ -5,6 +5,12 @@
 #include <cstdio>
 
 #include "core/Frame.h"
+#if __has_include("device/BuildInfo.h")
+#include "device/BuildInfo.h"  // MIRROR_GIT_REV, written by mirror/build.py
+#endif
+#ifndef MIRROR_GIT_REV
+#define MIRROR_GIT_REV "unknown"
+#endif
 #include "device/ScreenText.h"
 
 namespace {
@@ -293,7 +299,8 @@ void MirrorActivity::drawStatus() {
   text.moveTo(renderer.getScreenHeight() - 3 * text.step());
   if (!note_.empty()) text.line(note_);
   // Visible without a serial cable: which firmware runs and whether the radio is out there.
-  text.line(std::string(kDeviceName) + (ble_.advertising() ? ", advertising" : "") + ", build " + __DATE__);
+  text.line(std::string(kDeviceName) + (ble_.advertising() ? ", advertising" : "") + ", build " + MIRROR_GIT_REV + " " +
+            __DATE__ + " " + std::string(__TIME__).substr(0, 5));
   text.line("Back: leave Mirror");
 }
 

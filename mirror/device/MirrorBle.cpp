@@ -145,7 +145,7 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   connected_ = false;
   statusChanged_ = true;
   pairingUntilMs_ = 0;
-  LOG_INF("MIRROR", "build %s %s, %d bonds", __DATE__, __TIME__, NimBLEDevice::getNumBonds());
+  LOG_INF("MIRROR", "%d bonds", NimBLEDevice::getNumBonds());  // the build is on the status page
   return StartResult::Ok;
 }
 
