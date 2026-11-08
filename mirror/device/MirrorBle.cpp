@@ -20,7 +20,8 @@ namespace {
 
 // Bumped whenever the security model changes; bonds made under an older one are deleted at the next start.
 // Same number as DeviceBond.SECURITY_EPOCH in the Android app and the protocol version: change them together.
-constexpr uint8_t kSecurityEpoch = 3;
+// 4: the keyboard is always on, so a bond made with it off has a stale GATT database on the phone.
+constexpr uint8_t kSecurityEpoch = 4;
 constexpr uint8_t kCccdFlags = BLE_ATT_F_READ | BLE_ATT_F_WRITE | BLE_ATT_F_READ_ENC | BLE_ATT_F_WRITE_ENC |
                                BLE_ATT_F_READ_AUTHEN | BLE_ATT_F_WRITE_AUTHEN;
 
@@ -85,10 +86,8 @@ void configureSecurity() {
 
 }  // namespace
 
-MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vector<uint8_t>& capabilities,
-                                        bool keyboard) {
+MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vector<uint8_t>& capabilities) {
   if (running_) return StartResult::Ok;
-  keyboard_ = keyboard;
   minimalAdvertisement_ = false;
   advConnectable_ = true;
   if (heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) < kMinLargestBlock) {
@@ -116,12 +115,10 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   NimBLECharacteristic* caps = svc->createCharacteristic(
       gen::kUuidCaps, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::READ_ENC | NIMBLE_PROPERTY::READ_AUTHEN, 512);
   caps->setValue(capabilities.data(), capabilities.size());
-  if (keyboard) {
-    hid_ = std::make_unique<MirrorHid>();
-    hid_->create(server_);
-  }
+  hid_ = std::make_unique<MirrorHid>();
+  hid_->create(server_);
   if (!server_->start()) {
-    LOG_ERR("MIRROR", "GATT server failed to start (keyboard %d)", keyboard);
+    LOG_ERR("MIRROR", "GATT server failed to start");
     NimBLEDevice::deinit(true);
     serverCallbacks->bind(nullptr);
     dataCallbacks->bind(nullptr);
@@ -134,11 +131,9 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   // Only the service UUID (the Companion Device Manager filters on it) and a generic name: no content, no serial.
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(gen::kUuidService);
-  if (keyboard) {
-    // No keyboard appearance: Android then treats the device as a keyboard, shows its own PIN and answers the passkey
-    // request with it instead of asking the user for the code on our screen.
-    adv->addServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));  // the phone's HID host looks for this
-  }
+  // No keyboard appearance: Android then treats the device as a keyboard, shows its own PIN and answers the passkey
+  // request with it instead of asking the user for the code on our screen.
+  adv->addServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));  // the phone's HID host looks for this
   adv->enableScanResponse(true);  // before setName: the name goes to the scan response, not the full main packet
   adv->setName(deviceName);
   {
@@ -150,8 +145,7 @@ MirrorBle::StartResult MirrorBle::start(const char* deviceName, const std::vecto
   connected_ = false;
   statusChanged_ = true;
   pairingUntilMs_ = 0;
-  LOG_INF("MIRROR", "build %s %s, %d bonds, keyboard %s", __DATE__, __TIME__, NimBLEDevice::getNumBonds(),
-          keyboard ? "on" : "off");
+  LOG_INF("MIRROR", "%d bonds", NimBLEDevice::getNumBonds());  // the build is on the status page
   return StartResult::Ok;
 }
 
@@ -214,7 +208,7 @@ void MirrorBle::service() {
     adv->setConnectableMode(connectable ? BLE_GAP_CONN_MODE_UND : BLE_GAP_CONN_MODE_NON);
     advConnectable_ = connectable;
     bool ok = adv->start();
-    if (!ok && keyboard_ && !minimalAdvertisement_) {
+    if (!ok && !minimalAdvertisement_) {
       // The keyboard adds a service UUID; retry with only the mirror service UUID.
       adv->removeServiceUUID(NimBLEUUID(static_cast<uint16_t>(0x1812)));
       minimalAdvertisement_ = true;

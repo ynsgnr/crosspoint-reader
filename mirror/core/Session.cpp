@@ -84,10 +84,22 @@ void Session::handleControl(const Envelope& e, bool& changed) {
   changed = true;
 }
 
+namespace {
+std::string appsDump(const std::vector<gen::PhoneApp>& apps) {
+  if (apps.empty()) return "-";
+  std::string s;
+  for (const auto& a : apps) {
+    if (!s.empty()) s += ',';
+    s += a.name;
+  }
+  return s;
+}
+}  // namespace
+
 std::string Session::phoneDump() const {
   if (!phone_) return "-";
   return "dark=" + std::string(phone_->dark_mode ? "1" : "0") + " minutes=" + std::to_string(phone_->minutes_left) +
-         " locked=" + (phone_->locked ? "1" : "0") + " kbd=" + (phone_->keyboard_allowed ? "1" : "0");
+         " locked=" + (phone_->locked ? "1" : "0") + " apps=" + appsDump(phone_->apps);
 }
 
 void Session::sendCommand(uint8_t command, uint8_t arg, uint8_t arg2) {
