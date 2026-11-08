@@ -1,0 +1,2 @@
+# The root .gitignore ignores *.cpfont; this optional font is meant to be committed.
+!LibroEmoji/*.cpfont

@@ -99,6 +99,14 @@ void paint(Gfx& g, const Item& it) {
     case Item::Kind::Bar:
       g.fillRect(it.r.x, it.r.y, it.r.w, it.r.h, true);
       break;
+    case Item::Kind::ArrowDown:
+    case Item::Kind::ArrowUp:
+      for (int row = 0; row < it.r.h; ++row) {
+        const int inset = it.kind == Item::Kind::ArrowDown ? row : it.r.h - 1 - row;  // the point is narrowest
+        g.fillRect(it.r.x + inset, it.r.y + row, 1, 1, true);
+        g.fillRect(it.r.x + it.r.w - 1 - inset, it.r.y + row, 1, 1, true);
+      }
+      break;
   }
 }
 }  // namespace

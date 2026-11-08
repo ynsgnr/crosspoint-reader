@@ -10,7 +10,8 @@
 namespace mirror::chat {
 
 struct Item {
-  enum class Kind : uint8_t { Text, Rule, Bar } kind = Kind::Text;
+  // ArrowDown "\/" hangs from the top of its rect, ArrowUp "/\" stands on its bottom: one pixel per row.
+  enum class Kind : uint8_t { Text, Rule, Bar, ArrowDown, ArrowUp } kind = Kind::Text;
   Rect r;
   Font font = Font::Body;
   std::string text;
@@ -37,6 +38,9 @@ std::vector<std::string> wrapText(const Gfx& g, Font f, const std::string& text,
 
 // "HH:MM" of a timestamp that is already in the phone's local time.
 std::string formatTime(uint32_t localEpochSeconds);
+
+// A message with this text (U+FFFC, object replacement character) is an image or other non-text item on the phone.
+constexpr const char* kMediaText = "\xEF\xBF\xBC";
 
 std::vector<Item> layout(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics& m = {});
 
