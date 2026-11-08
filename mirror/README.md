@@ -50,7 +50,8 @@ mismatch, scroll events) byte for byte through the real `Session` and `ChatRende
 
 ## Chat screen
 Title row (scroll marker `vN` when newer messages are below, unread badge), messages (incoming left with a thin bar, own right-aligned
-as one block with a thick bar), and the draft box with its cursor. The box is 3 lines tall and grows with the text (up to most of the
+as one block with a thick bar; an image or other non-text item, sent as U+FFFC, is a small marker: a line with a tiny "v", three dots, a line
+with a tiny "^"), and the draft box with its cursor. The box is 3 lines tall and grows with the text (up to most of the
 screen, leaving room for one message); when the draft is longer it shows the end, or the cursor's line when the cursor is further up.
 Up/Down (or the page buttons) scroll one message, holding keeps scrolling (see Scrolling); Back opens the menu.
 

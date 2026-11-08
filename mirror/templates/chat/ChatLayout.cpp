@@ -142,6 +142,24 @@ std::string clipToWidth(const Gfx& g, Font f, std::string s, int maxWidth) {
 namespace {
 const char* const kEllipsis = "\xE2\x80\xA6";
 
+// Media placeholder: a line with a small "v" under its middle, three dots, a line with a small "^" on its middle.
+constexpr int kArrow = 3;  // arrow height in pixels (one pixel per row)
+constexpr int kDot = 3;    // dot size, about a text period
+constexpr int kGap = 4;    // between an arrow and the dots
+constexpr int kMediaHeight = 1 + kArrow + kGap + kDot + kGap + kArrow + 1;
+
+void layoutMedia(int left, int width, int y, std::vector<Item>& out) {
+  const int cx = left + width / 2, arrowW = 2 * kArrow - 1;
+  out.push_back(shape(Item::Kind::Rule, {left, y, width, 1}));
+  out.push_back(shape(Item::Kind::ArrowDown, {cx - kArrow + 1, y + 1, arrowW, kArrow}));
+  const int dotsY = y + 1 + kArrow + kGap;
+  for (int i = -1; i <= 1; ++i)
+    out.push_back(shape(Item::Kind::Bar, {cx + i * 3 * kDot - kDot / 2, dotsY, kDot, kDot}));
+  const int lineY = y + kMediaHeight - 1;
+  out.push_back(shape(Item::Kind::ArrowUp, {cx - kArrow + 1, lineY - kArrow, arrowW, kArrow}));
+  out.push_back(shape(Item::Kind::Rule, {left, lineY, width, 1}));
+}
+
 Item textItem(Rect r, Font font, std::string text, bool black = true) {
   Item i;
   i.r = r;
@@ -216,6 +234,14 @@ void layoutBody(const Gfx& g, const gen::chat::ChatState& s, const LayoutMetrics
   const size_t skip = std::min<size_t>(s.scroll, s.messages.size() - 1);
   for (size_t idx = s.messages.size() - skip; idx-- > 0;) {
     const auto& msg = s.messages[idx];
+    if (msg.text == kMediaText) {  // no sender or time: it only marks where the item is
+      const int blockTop = bottom - kMediaHeight;
+      if (blockTop < top) break;
+      layoutMedia(m.margin, W - 2 * m.margin, blockTop, out);
+      bottom = blockTop - 4;
+      if (bottom <= top) break;
+      continue;
+    }
     const auto lines = wrapText(g, Font::Body, msg.text, textW);
     const std::string meta = clipToWidth(
         g, Font::Small, (msg.outgoing ? std::string("Me") : msg.sender) + "  " + formatTime(msg.timestamp), textW);
