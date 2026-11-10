@@ -26,6 +26,7 @@ struct State {
   std::string filename;
   uint32_t refreshSeconds = 0;
   int64_t checkedAt = 0;  // epoch of the last successful server check; 0 if unknown
+  std::string error;      // why the last refresh failed; empty after a success
 };
 
 State loadState() {
@@ -36,6 +37,7 @@ State loadState() {
     state.filename = doc["filename"] | "";
     state.refreshSeconds = doc["refresh"].as<uint32_t>();
     state.checkedAt = doc["at"].as<int64_t>();
+    state.error = doc["err"] | "";
   }
   return state;
 }
@@ -45,6 +47,7 @@ void saveState(const State& state) {
   doc["filename"] = state.filename;
   doc["refresh"] = state.refreshSeconds;
   doc["at"] = state.checkedAt;
+  if (!state.error.empty()) doc["err"] = state.error;
   std::string json;
   serializeJson(doc, json);
   Storage.writeFile(STATE_PATH, String(json.c_str()));
@@ -57,9 +60,10 @@ bool heapFitsTls() {
 
 pluginhttp::Headers deviceHeaders() { return {{"ID", WiFi.macAddress().c_str()}, {"FW-Version", CROSSPOINT_VERSION}}; }
 
-bool getJson(const std::string& url, const pluginhttp::Headers& headers, std::string& body) {
+bool getJson(const std::string& url, const pluginhttp::Headers& headers, std::string& body, int& status) {
   String reply;
-  if (pluginhttp::request(nullptr, url, "GET", "", headers, reply, MAX_REPLY_BYTES) != 200) return false;
+  status = pluginhttp::request(nullptr, url, "GET", "", headers, reply, MAX_REPLY_BYTES);
+  if (status != 200) return false;
   body = reply.c_str();
   return true;
 }
@@ -69,7 +73,8 @@ bool autoJoin(const std::string& server) {
   auto headers = deviceHeaders();
   if (SETTINGS.trmnlModelId[0]) headers.emplace_back("Model-Id", SETTINGS.trmnlModelId);
   std::string body;
-  if (!getJson(server + "/api/setup", headers, body)) return false;
+  int status = 0;
+  if (!getJson(server + "/api/setup", headers, body, status)) return false;
   const std::string token = parseSetupToken(body);
   if (token.empty() || token.size() >= sizeof(SETTINGS.trmnlToken)) return false;
   strlcpy(SETTINGS.trmnlToken, token.c_str(), sizeof(SETTINGS.trmnlToken));
@@ -97,20 +102,30 @@ bool due(const uint32_t minimumMinutes) {
 uint32_t lastRefreshSeconds() { return configured() ? loadState().refreshSeconds : 0; }
 
 Result refresh() {
-  if (!configured() || !heapFitsTls()) return Result::Failed;
+  if (!configured()) return Result::Failed;
+  State state = loadState();
+  // A failed refresh leaves its reason in trmnl.json ("err"), so a stall can be read off the SD card.
+  const auto fail = [&state](const std::string& why) {
+    LOG_ERR("TRM", "Refresh failed: %s", why.c_str());
+    state.error = why;
+    saveState(state);
+    return Result::Failed;
+  };
+  if (!heapFitsTls()) return fail("low heap");
   const std::string server = normalizeServerUrl(SETTINGS.trmnlServer);
-  if (!SETTINGS.trmnlToken[0] && !autoJoin(server)) return Result::Failed;
+  if (!SETTINGS.trmnlToken[0] && !autoJoin(server)) return fail("setup request failed");
 
   auto headers = deviceHeaders();
   headers.emplace_back("Access-Token", SETTINGS.trmnlToken);
   headers.emplace_back("Battery-Percent", std::to_string(powerManager.getBatteryPercentage()));
   headers.emplace_back("RSSI", std::to_string(WiFi.RSSI()));
   std::string body;
-  if (!getJson(server + "/api/display", headers, body)) return Result::Failed;
+  int status = 0;
+  if (!getJson(server + "/api/display", headers, body, status)) return fail("display http " + std::to_string(status));
   const DisplayReply reply = parseDisplayReply(body);
-  if (!reply.ok) return Result::Failed;
+  if (!reply.ok) return fail("display reply rejected");
 
-  State state = loadState();
+  state.error.clear();
   state.refreshSeconds = reply.refreshSeconds;
   state.checkedAt = trustedtime::trustedNow();
   const bool unchanged = !reply.filename.empty() && reply.filename == state.filename && Storage.exists(IMAGE_PATH);
@@ -119,13 +134,12 @@ Result refresh() {
     return Result::Unchanged;
   }
 
-  if (!heapFitsTls()) return Result::Failed;
+  if (!heapFitsTls()) return fail("low heap before download");
   Storage.remove(TEMP_IMAGE_PATH);
   if (HttpDownloader::downloadToFile(reply.imageUrl, TEMP_IMAGE_PATH) != HttpDownloader::OK ||
       !isBmp(TEMP_IMAGE_PATH) || !Storage.replaceFile(TEMP_IMAGE_PATH, IMAGE_PATH)) {
-    LOG_ERR("TRM", "Image download failed");
     Storage.remove(TEMP_IMAGE_PATH);
-    return Result::Failed;
+    return fail("image download or save failed");
   }
   state.filename = reply.filename;
   saveState(state);
