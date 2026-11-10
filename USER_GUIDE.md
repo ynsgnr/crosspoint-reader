@@ -331,6 +331,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - "Links and Footnotes" - A short press in reading mode opens link selection. If the page has only one link, it opens directly. After following a link, a short press returns to the previous location.
   - "Refresh" - A short press triggers a manual full-screen refresh, useful for clearing ghosting
 - **Quick return from links**: Controls whether a short press of the power button acts as Back after following a link or footnote.
+- **Wake on Charge (X4 Pro only)**: When on, plugging in a charger wakes the device from sleep, as the Power button does. It does not wake if the device is already charging when it goes to sleep, or if the battery is full.
 
 #### 3.6.4 System
 

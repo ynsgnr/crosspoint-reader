@@ -180,6 +180,10 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   if (BoardConfig::isX4Pro())
     emit(SettingInfo::Toggle(StrId::STR_DBL_CLICK_PWR_LIGHT, &CrossPointSettings::doubleClickPwrLight,
                              "doubleClickPwrLight", StrId::STR_CAT_CONTROLS));
+  // Wake-on-charge needs the X4 Pro's charger status line.
+  if (BoardConfig::isX4Pro())
+    emit(SettingInfo::Toggle(StrId::STR_WAKE_ON_CHARGE, &CrossPointSettings::wakeOnCharge, "wakeOnCharge",
+                             StrId::STR_CAT_CONTROLS));
   emit(buildShortPowerButtonSetting());
   // Always persisted; isHiddenOnDevice() hides it when the IMU probe fails.
   emit(SettingInfo::Enum(StrId::STR_TILT_PAGE_TURN, &CrossPointSettings::tiltPageTurn,
