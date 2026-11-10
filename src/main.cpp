@@ -31,6 +31,7 @@
 #include <soc/soc_caps.h>
 #include <time.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdarg>
 #include <cstring>
@@ -436,6 +437,7 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
 }
 
 constexpr uint16_t OPDS_SYNC_MIN_BATTERY_PERCENT = 20;
+constexpr uint32_t LOW_BATTERY_RECHECK_SECONDS = 3600;
 
 static bool batteryAllowsOpdsSync() { return powerManager.getBatteryPercentage() >= OPDS_SYNC_MIN_BATTERY_PERCENT; }
 
@@ -450,15 +452,17 @@ static bool sleepImageRefreshWanted() {
 static void armSyncWake() {
 #if SOC_PM_SUPPORT_EXT1_WAKEUP  // S3 boards only: the C3 Xteink boards cut battery power instead of sleeping
   const bool wanted = opdssync::hasSyncFeed() || sleepImageRefreshWanted();
-  const uint32_t seconds = wanted && batteryAllowsOpdsSync()
-                               ? trmnl::nextWakeSeconds(SETTINGS.opdsSyncMinutes, trmnl::lastRefreshSeconds())
-                               : 0;
+  uint32_t seconds = wanted ? trmnl::nextWakeSeconds(SETTINGS.opdsSyncMinutes, trmnl::lastRefreshSeconds()) : 0;
+  // A low battery skips the sync (syncOnTimerWakeAndSleep) but keeps the timer, so syncing resumes by itself once the
+  // battery is charged. Without it the schedule ended at the first low-battery sleep. Wake less often meanwhile.
+  if (seconds > 0 && !batteryAllowsOpdsSync()) seconds = std::max(seconds, LOW_BATTERY_RECHECK_SECONDS);
   if (seconds > 0) esp_sleep_enable_timer_wakeup(static_cast<uint64_t>(seconds) * 1000000ULL);
 #endif
 }
 
 static void refreshTrmnlBeforeSleep() {
   if (!sleepImageRefreshWanted() || !trmnl::configured() || !batteryAllowsOpdsSync()) return;
+  if (!trmnl::due(SETTINGS.opdsSyncMinutes)) return;  // /sleep.bmp is still fresh: sleep without the network
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   if (WiFi.status() == WL_CONNECTED || opdssync::joinWifi()) trmnl::refresh();
 }

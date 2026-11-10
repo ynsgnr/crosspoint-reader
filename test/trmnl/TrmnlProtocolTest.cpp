@@ -54,3 +54,15 @@ TEST(TrmnlNextWake, LimitsServerRateAndTurnsOff) {
   EXPECT_EQ(nextWakeSeconds(0, 999999), 86400u);
   EXPECT_EQ(nextWakeSeconds(1, 0), 60u);
 }
+
+TEST(TrmnlRefreshDue, WaitsForThePeriod) {
+  EXPECT_FALSE(refreshDue(1000 + 599, 1000, 600));
+  EXPECT_TRUE(refreshDue(1000 + 600, 1000, 600));
+}
+
+TEST(TrmnlRefreshDue, RefreshesWhenTheAgeIsUnknown) {
+  EXPECT_TRUE(refreshDue(2000, 0, 600));    // never checked
+  EXPECT_TRUE(refreshDue(0, 1000, 600));    // clock unknown
+  EXPECT_TRUE(refreshDue(900, 1000, 600));  // clock went back
+  EXPECT_TRUE(refreshDue(1000, 1000, 0));   // no period
+}

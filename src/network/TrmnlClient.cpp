@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <TrmnlProtocol.h>
+#include <TrustedTime.h>
 #include <WiFi.h>
 
 #include <string>
@@ -24,6 +25,7 @@ constexpr size_t MAX_REPLY_BYTES = 4096;
 struct State {
   std::string filename;
   uint32_t refreshSeconds = 0;
+  int64_t checkedAt = 0;  // epoch of the last successful server check; 0 if unknown
 };
 
 State loadState() {
@@ -33,6 +35,7 @@ State loadState() {
   if (Storage.readFileToString("TRM", STATE_PATH, MAX_REPLY_BYTES, json) && !deserializeJson(doc, json)) {
     state.filename = doc["filename"] | "";
     state.refreshSeconds = doc["refresh"].as<uint32_t>();
+    state.checkedAt = doc["at"].as<int64_t>();
   }
   return state;
 }
@@ -41,6 +44,7 @@ void saveState(const State& state) {
   JsonDocument doc;
   doc["filename"] = state.filename;
   doc["refresh"] = state.refreshSeconds;
+  doc["at"] = state.checkedAt;
   std::string json;
   serializeJson(doc, json);
   Storage.writeFile(STATE_PATH, String(json.c_str()));
@@ -84,6 +88,12 @@ bool isBmp(const char* path) {
 
 bool configured() { return SETTINGS.trmnlServer[0] != '\0'; }
 
+bool due(const uint32_t minimumMinutes) {
+  if (!configured() || !Storage.exists(IMAGE_PATH)) return true;
+  const State state = loadState();
+  return refreshDue(trustedtime::trustedNow(), state.checkedAt, nextWakeSeconds(minimumMinutes, state.refreshSeconds));
+}
+
 uint32_t lastRefreshSeconds() { return configured() ? loadState().refreshSeconds : 0; }
 
 Result refresh() {
@@ -102,6 +112,7 @@ Result refresh() {
 
   State state = loadState();
   state.refreshSeconds = reply.refreshSeconds;
+  state.checkedAt = trustedtime::trustedNow();
   const bool unchanged = !reply.filename.empty() && reply.filename == state.filename && Storage.exists(IMAGE_PATH);
   if (unchanged) {
     saveState(state);
