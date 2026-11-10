@@ -279,6 +279,10 @@ HalGPIO::WakeupReason HalGPIO::getWakeupReason() const {
       (wakeupCause == ESP_SLEEP_WAKEUP_GPIO || wakeupCause == ESP_SLEEP_WAKEUP_EXT1)) {
     return WakeupReason::PowerButton;
   }
+  // Wake-on-charge arms the charger status line as ext0 (HalPowerManager::startDeepSleep).
+  if (resetReason == ESP_RST_DEEPSLEEP && wakeupCause == ESP_SLEEP_WAKEUP_EXT0) {
+    return WakeupReason::Charging;
+  }
   if (wakeupCause == ESP_SLEEP_WAKEUP_UNDEFINED && resetReason == ESP_RST_POWERON && !usbConnected &&
       coldBootImpliesPowerButton()) {
     return WakeupReason::PowerButton;

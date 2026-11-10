@@ -552,6 +552,7 @@ void enterDeepSleep(bool fromTimeout = false) {
   halTiltSensor.deepSleep();
   display.deepSleep();
   Storage.prepareForDeepSleep();
+  powerManager.setWakeOnCharge(SETTINGS.wakeOnCharge != 0);
   LOG_DBG("MAIN", "Entering deep sleep");
 
   armSyncWake();
@@ -752,7 +753,8 @@ void setup() {
   HalSystem::checkPanic();
 
   APP_STATE.loadFromFile();
-  const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;
+  const bool isSleepWake =
+      wakeupReason == HalGPIO::WakeupReason::PowerButton || wakeupReason == HalGPIO::WakeupReason::Charging;
   const bool isPersistedSleepWake = isSleepWake && !APP_STATE.showBootScreen;
 
   if (recoveryFirmwareMode) {
@@ -768,6 +770,7 @@ void setup() {
     SETTINGS.readerMenuStyle = CrossPointSettings::READER_MENU_TOOLBAR;
   }
   SETTINGS.loadFromFile();
+  powerManager.setWakeOnCharge(SETTINGS.wakeOnCharge != 0);  // for the sleeps that do not pass enterDeepSleep()
   // Push the saved timezone's POSIX rule into the clock (migrating the legacy
   // UTC-offset setting on first boot after the update).
   timezones::applyToClock();
@@ -846,6 +849,8 @@ void setup() {
       powerManager.startDeepSleep(gpio);
       break;
 #endif
+    case HalGPIO::WakeupReason::Charging:
+      // Plugged in while asleep: boot like a power-button wake, with no held press to verify.
     case HalGPIO::WakeupReason::AfterFlash:
       // After flashing, just proceed to boot
     case HalGPIO::WakeupReason::Other:

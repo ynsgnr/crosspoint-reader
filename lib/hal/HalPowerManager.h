@@ -16,6 +16,7 @@ extern HalPowerManager powerManager;  // Singleton
 class HalPowerManager {
   int normalFreq = 0;  // MHz
   bool isLowPower = false;
+  bool wakeOnCharge = false;
 
   mutable int _batteryCachedPercent = 0;         // Last read battery percentage (0-100)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
@@ -44,6 +45,9 @@ class HalPowerManager {
   // release, so a press that is still down wakes the device straight back up
   // through the normal power-button wake path.
   void startDeepSleep(HalGPIO& gpio, bool wakeOnHeldButton = false) const;
+
+  // X4 Pro: also wake from deep sleep when the charger status line goes active. Set before startDeepSleep().
+  void setWakeOnCharge(bool enable) { wakeOnCharge = enable; }
 
 #if FREEINK_DEVICE_PICCO
   // While USB powers the device, light-sleep instead of deep sleep (deep sleep

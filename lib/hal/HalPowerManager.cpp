@@ -6,6 +6,10 @@
 #include <WiFi.h>
 #include <esp_sleep.h>
 #include <soc/soc_caps.h>
+#if SOC_PM_SUPPORT_EXT0_WAKEUP
+#include <driver/gpio.h>
+#include <driver/rtc_io.h>
+#endif
 
 #include <cassert>
 
@@ -81,6 +85,32 @@ void HalPowerManager::setPowerSaving(bool enabled) {
   xSemaphoreGive(modeMutex);
 }
 
+#if SOC_PM_SUPPORT_EXT0_WAKEUP
+// X4 Pro: wake when the charger status line goes active, i.e. a charger was plugged in. It is ext0 because the power
+// button already uses ext1, which has a single level for all its pins (low).
+static void armChargeWakeup(bool enabled) {
+  const int8_t pin = BoardConfig::ACTIVE.batteryChargeStatus;
+  if (!enabled || !BoardConfig::isX4Pro() || pin < 0) return;
+  const bool activeHigh = BoardConfig::ACTIVE.batteryChargeStatusActiveHigh;
+  const int activeLevel = activeHigh ? HIGH : LOW;
+  pinMode(pin, INPUT);
+  if (digitalRead(pin) == activeLevel) return;  // already charging: it would wake at once and loop
+  const auto gpioNum = static_cast<gpio_num_t>(pin);
+  esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);  // keeps the idle-level pull below
+  if (activeHigh) {
+    rtc_gpio_pullup_dis(gpioNum);
+    rtc_gpio_pulldown_en(gpioNum);
+  } else {
+    rtc_gpio_pulldown_dis(gpioNum);
+    rtc_gpio_pullup_en(gpioNum);
+  }
+  const esp_err_t err = esp_sleep_enable_ext0_wakeup(gpioNum, activeLevel);
+  if (err != ESP_OK) LOG_ERR("PWR", "Wake on charge not armed (%d)", static_cast<int>(err));
+}
+#else
+static void armChargeWakeup(bool) {}
+#endif
+
 void HalPowerManager::startDeepSleep(HalGPIO& gpio, const bool wakeOnHeldButton) const {
 #if FREEINK_DEVICE_EEGO_A4 || FREEINK_DEVICE_PICCO
   // The frontlight driver and touch share I2C; turn the light off before touch
@@ -153,6 +183,8 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio, const bool wakeOnHeldButton)
   // power instead; the button cold-boots it. Returns only on USB power.
   freeink::metalio::powerOff();
 #endif
+
+  armChargeWakeup(wakeOnCharge);
 
   if (wakeOnHeldButton) {
     freeink::PowerManager::armPowerButtonWakeup();
