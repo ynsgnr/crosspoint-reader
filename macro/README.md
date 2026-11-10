@@ -26,6 +26,16 @@ The X4 (ESP32-C3) has no USB device mode, so it always uses Bluetooth and shows 
 
 Edit the table in `Macro.h` to change the keys, then rebuild. Consumer usages are from the HID Usage Tables, page 0x0C.
 
+## Auto-open on PC (X4 Pro)
+Turn **Auto-open on PC** on from the Macro screen while no host is connected (it sits under the Bluetooth switch). Then, from Home,
+Macro opens by itself about 3 seconds after a PC starts sending USB frames. A wall charger or power bank never does, so they do not
+trigger it. It does not open if you touched a button or the screen since boot, or if you just closed Macro with the cable still in
+(unplug for 2 seconds to re-arm). Auto-open only runs on Home, and the device must be awake: it does not wake from sleep by itself
+(see Wake on Charge in Settings).
+
+If the device crashes while the keyboard is up, the next boot gives the USB port back to serial and restarts once. The Reset button
+always does the same, and Reset with the Left button held enters download mode.
+
 ## Build and test
 ```bash
 pio run -e x4pro-macro -t upload    # X4 Pro (ESP32-S3)
@@ -37,6 +47,7 @@ environments extend the mirror ones.
 
 ## Not verified
 * **Nothing here has been compiled for the device or run on hardware.** Only the host test of the table ran. The USB path (`MacroUsb.cpp`) is the newest and least checked: `USBHIDKeyboard` + `USBHIDConsumerControl` with `USB.begin()` next to hardware CDC/JTAG, and the reboot on leaving.
+* Auto-open: the `usb_serial_jtag_is_connected()` host check in `MacroAuto.cpp` on a PC, a hub, a sleeping PC and a charger; the boot-time port restore (`restoreSerialJtagIfOtgLeftOn()`); the second switch row on the Macro screen.
 * The 3x4 layout, the black pressed key and the extra refresh per press (ghosting, battery) are not seen on a display.
 * `macro/build.py` appends to `SRC_FILTER` after `mirror/build.py` replaced it; the order of `extra_scripts` and the append on a
   string variable are untested.

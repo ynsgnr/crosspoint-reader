@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <vector>
 
+#include "MacroAuto.h"
 #include "MacroSettings.h"
 #include "SilentRestart.h"
 #include "device/ScreenText.h"
@@ -25,10 +26,12 @@ Cell gridCell(int i, int screenW, int screenH) {
   return {gap + (i % macro::kMacroCols) * (cellW + gap), gap + (i / macro::kMacroCols) * (cellH + gap), cellW, cellH};
 }
 
-// The transport switch, shown while there is no grid.
-Cell switchCell(int screenW, int screenH, int lineH) {
-  const int gap = 12;
-  return {gap, screenH * 3 / 5, screenW - 2 * gap, lineH + 16};
+constexpr int kSwitchRows = 2;  // Bluetooth, Auto-open on PC
+
+// The switches, shown while there is no grid.
+Cell switchCell(int row, int screenW, int screenH, int lineH) {
+  const int gap = 12, h = lineH + 16;
+  return {gap, screenH * 3 / 5 + row * (h + gap), screenW - 2 * gap, h};
 }
 
 bool inside(const Cell& c, int x, int y) { return x >= c.x && x < c.x + c.w && y >= c.y && y < c.y + c.h; }
@@ -37,6 +40,13 @@ int cellAt(int x, int y, int screenW, int screenH) {
   for (int i = 0; i < macro::kMacroCount; ++i) {
     const Cell c = gridCell(i, screenW, screenH);
     if (inside(c, x, y)) return i;
+  }
+  return -1;
+}
+
+int switchAt(int x, int y, int screenW, int screenH, int lineH) {
+  for (int row = 0; row < kSwitchRows; ++row) {
+    if (inside(switchCell(row, screenW, screenH, lineH), x, y)) return row;
   }
   return -1;
 }
@@ -54,6 +64,7 @@ void MacroActivity::onEnter() {
 void MacroActivity::onExit() {
   ble_.stop();
   if (canSwitch()) macro::settings::setBleEnabled(false);  // the next visit starts on USB again
+  macro::autoopen::suppressUntilUnplug();                  // do not reopen at once while the cable is in
   reboot();                                                // every way out of Macro, not only Back and Home
   Activity::onExit();
 }
@@ -167,6 +178,7 @@ void MacroActivity::loop() {
   }
   const bool connected = linkUp(), hidReady = linkReady();
   if (connected != connected_ || hidReady != hidReady_) {
+    if (connected != connected_) cursor_ = 0;  // the cursor is a key on the grid, a switch row otherwise
     connected_ = connected;
     hidReady_ = hidReady;
     redraw = true;
@@ -176,7 +188,7 @@ void MacroActivity::loop() {
   const bool touch = mappedInput.hasTouch();
   int x = 0, y = 0;
   int send = -1;
-  bool toggle = false;
+  int toggleRow = -1;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (connected_) {
@@ -198,13 +210,22 @@ void MacroActivity::loop() {
         }
       }
     } else if (canSwitch()) {
-      toggle = mappedInput.wasReleased(MappedInputManager::Button::Confirm);
+      using Btn = MappedInputManager::Button;
+      if (mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::Down) || mappedInput.wasPressed(Btn::Left) ||
+          mappedInput.wasPressed(Btn::Right)) {
+        cursor_ = (cursor_ + 1) % kSwitchRows;
+        redraw = true;
+      }
+      if (mappedInput.wasReleased(Btn::Confirm)) toggleRow = cursor_;
       if (touch && mappedInput.wasScreenTapped(x, y))
-        toggle = inside(switchCell(w, h, renderer.getLineHeight(UI_10_FONT_ID)), x, y);
+        toggleRow = switchAt(x, y, w, h, renderer.getLineHeight(UI_10_FONT_ID));
     }
   }
-  if (toggle) {
+  if (toggleRow == 0) {
     toggleTransport();
+    redraw = true;
+  } else if (toggleRow == 1) {
+    macro::autoopen::setEnabled(!macro::autoopen::enabled());
     redraw = true;
   }
   if (send >= 0) return press(send);
@@ -246,12 +267,17 @@ void MacroActivity::render(RenderLock&&) {
         text.line("Waiting for the paired host");
       }
       if (canSwitch()) {
-        const Cell c = switchCell(w, h, renderer.getLineHeight(UI_10_FONT_ID));
-        const char* label = useBle_ ? "Bluetooth: On" : "Bluetooth: Off (USB)";
-        renderer.drawRect(c.x, c.y, c.w, c.h, mappedInput.hasTouch() ? 1 : 4, true);
-        const int tw = renderer.getTextWidth(UI_10_FONT_ID, label);
-        renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - renderer.getLineHeight(UI_10_FONT_ID)) / 2,
-                          label, true, EpdFontFamily::BOLD);
+        const bool showCursor = !mappedInput.hasTouch();
+        const int lineH = renderer.getLineHeight(UI_10_FONT_ID);
+        const char* labels[kSwitchRows] = {useBle_ ? "Bluetooth: On" : "Bluetooth: Off (USB)",
+                                           macro::autoopen::enabled() ? "Auto-open on PC: On" : "Auto-open on PC: Off"};
+        for (int row = 0; row < kSwitchRows; ++row) {
+          const Cell c = switchCell(row, w, h, lineH);
+          renderer.drawRect(c.x, c.y, c.w, c.h, showCursor && row == cursor_ ? 4 : 1, true);
+          const int tw = renderer.getTextWidth(UI_10_FONT_ID, labels[row]);
+          renderer.drawText(UI_10_FONT_ID, c.x + (c.w - tw) / 2, c.y + (c.h - lineH) / 2, labels[row], true,
+                            EpdFontFamily::BOLD);
+        }
       }
     }
     full = fullNext_ || ++partials_ >= kPartialsBeforeFull;  // a full refresh clears ghosting
