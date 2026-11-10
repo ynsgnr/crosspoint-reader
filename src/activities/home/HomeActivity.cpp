@@ -37,6 +37,7 @@
 #endif
 #if defined(CROSSPOINT_MIRROR) && defined(CROSSPOINT_MACRO)
 #include "MacroActivity.h"
+#include "MacroAuto.h"
 #define MACRO_ENABLED 1
 #else
 #define MACRO_ENABLED 0
@@ -353,6 +354,13 @@ void HomeActivity::freeCoverBuffer() {
 }
 
 void HomeActivity::loop() {
+#if MACRO_ENABLED
+  // A PC on the USB cable opens Macro by itself (setting off by default; macro/MacroAuto.h).
+  // Power is left out: it is how the device was just woken.
+  bool userActive = gpio.wasTouchActivity();
+  for (uint8_t b = 0; b < HalGPIO::BTN_POWER; ++b) userActive |= gpio.isPressed(b);
+  if (macro::autoopen::shouldOpen(userActive)) return onMacroOpen();
+#endif
   const int menuCount = getMenuItemCount();
   const auto& metrics = UITheme::getInstance().getMetrics();
 

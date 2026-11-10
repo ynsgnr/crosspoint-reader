@@ -33,6 +33,24 @@ void IRAM_ATTR onUsbSerialJtagReset(void* context) {
 }
 }  // namespace
 
+namespace {
+constexpr uint32_t kRestoreTriedMagic = 0x55534252;  // 'USBR'
+RTC_NOINIT_ATTR uint32_t restoreTried;
+}  // namespace
+
+void restoreSerialJtagIfOtgLeftOn() {
+  // IDF selects the OTG PHY with both bits set (see handoffUsbOtgToSerialJtag(), which clears them).
+  const uint32_t both = RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL;
+  if (GET_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, both) != both) {
+    restoreTried = 0;
+    return;
+  }
+  if (restoreTried == kRestoreTriedMagic) return;  // already tried and it is still set: leave it
+  restoreTried = kRestoreTriedMagic;
+  handoffUsbOtgToSerialJtag();
+  ESP.restart();
+}
+
 void handoffUsbOtgToSerialJtag() {
   // Serial/JTAG was active before USB Drive claimed the shared PHY. Release
   // its old ISR first so the temporary BUS_RESET listener below can own it.
@@ -89,5 +107,6 @@ void handoffUsbOtgToSerialJtag() {
 #else
 
 void handoffUsbOtgToSerialJtag() {}
+void restoreSerialJtagIfOtgLeftOn() {}
 
 #endif

@@ -5,7 +5,7 @@ out of the Arduino core build that the custom-sdkconfig envs run first (see mirr
 """
 Import("env")  # noqa: F821  # type: ignore[name-defined]
 
-MACRO_FILES = ["MacroActivity.cpp", "MacroSettings.cpp", "MacroUsb.cpp"]
+MACRO_FILES = ["MacroActivity.cpp", "MacroAuto.cpp", "MacroSettings.cpp", "MacroUsb.cpp"]
 
 
 def macro_sources(target, source, env, for_signature):

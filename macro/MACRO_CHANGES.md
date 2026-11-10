@@ -9,6 +9,8 @@ no macro header is included. The flag also requires `CROSSPOINT_MIRROR`, because
 | `platformio.ini` | one more line in `extra_configs`: `macro/platformio_macro.ini` | defines the `macro` and `x4pro-macro` environments |
 | `src/activities/home/HomeActivity.cpp`, `.h` | a `MACRO_ENABLED` block next to the `MIRROR_ENABLED` one; `MirrorHomeItem::Macro`; the item counts, the More... selection, the activation and the list entry "Macro" follow Mirror; `onMacroOpen()` | Home menu entry (list Home and cover-grid Home) |
 | `src/components/CoverGridHomeUi.cpp`, `.h` | the same pattern: tab loop 7 -> 8 slots, one icon-table entry, one `present` entry, `tabItems` size 8 | Home entry for the cover-grid theme |
+| `src/activities/home/HomeActivity.cpp` (auto-open) | a `MACRO_ENABLED` block at the top of `loop()` that calls `macro::autoopen::shouldOpen()` | Macro opens by itself when a PC is on the USB cable (setting, off by default) |
+| `src/platform/UsbSerialJtagHandoff.cpp`, `.h`; `src/main.cpp` | `restoreSerialJtagIfOtgLeftOn()` and one call at the start of `setup()` (not macro-guarded: no-op unless the OTG PHY was left selected) | after a crash with the Macro keyboard up the serial port comes back by itself |
 | `.github/workflows/mirror.yml` | the build matrix uses `x4pro-macro` and `macro` (they extend `x4pro-mirror` and `mirror` plus `-DCROSSPOINT_MACRO=1`); the artifact names are unchanged | CI compiles the macro code too |
 | `mirror/device/MirrorHid.h`, `.cpp`, `MirrorBle.h` | `MirrorHid::tapConsumer` and `MirrorBle::typeConsumer` (about 17 lines); the consumer characteristic is kept in `consumerIn_` | media keys: the characteristic was private to `MirrorHid` and created without a handle. Mirror behaviour is unchanged. |
 

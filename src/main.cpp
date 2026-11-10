@@ -673,6 +673,7 @@ void setupDisplayAndFonts(bool seamless = false) {
 
 void setup() {
   BoardConfig::holdPowerRails();
+  restoreSerialJtagIfOtgLeftOn();
 
 #ifdef ENABLE_SERIAL_LOG
 #ifdef CROSSPOINT_WAIT_FOR_USB_SERIAL
