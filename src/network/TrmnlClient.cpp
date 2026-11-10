@@ -8,7 +8,9 @@
 #include <TrustedTime.h>
 #include <WiFi.h>
 
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "CrossPointSettings.h"
 #include "network/HttpDownloader.h"
@@ -89,6 +91,26 @@ bool isBmp(const char* path) {
          magic[1] == 'M';
 }
 
+// SleepActivity caches a screen-sized conversion of /sleep.bmp as /.crosspoint/sleep_<hash>.bmp, keyed by size and
+// modification time. Same-sized images written by the device share both, so a new image would show the old
+// conversion. Dropping the conversions when an image arrives makes the next sleep convert it again.
+void clearSleepConversions() {
+  constexpr size_t MAX_CONVERSIONS = 16;
+  std::vector<std::string> stale;
+  {
+    auto dir = Storage.open("/.crosspoint");
+    if (!dir || !dir.isDirectory()) return;
+    char name[96];
+    for (auto entry = dir.openNextFile(); entry && stale.size() < MAX_CONVERSIONS; entry = dir.openNextFile()) {
+      if (entry.isDirectory()) continue;
+      entry.getName(name, sizeof(name));
+      const size_t len = strlen(name);
+      if (strncmp(name, "sleep_", 6) == 0 && len > 10 && strcmp(name + len - 4, ".bmp") == 0) stale.emplace_back(name);
+    }
+  }
+  for (const auto& name : stale) Storage.remove(("/.crosspoint/" + name).c_str());
+}
+
 }  // namespace
 
 bool configured() { return SETTINGS.trmnlServer[0] != '\0'; }
@@ -141,6 +163,7 @@ Result refresh() {
     Storage.remove(TEMP_IMAGE_PATH);
     return fail("image download or save failed");
   }
+  clearSleepConversions();
   state.filename = reply.filename;
   saveState(state);
   return Result::Changed;
