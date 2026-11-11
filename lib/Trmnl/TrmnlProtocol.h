@@ -26,4 +26,8 @@ std::string normalizeServerUrl(const std::string& url);
 // 5 minutes..24 hours). 0 when both are 0.
 uint32_t nextWakeSeconds(uint32_t minimumMinutes, uint32_t serverSeconds);
 
+// True when the image should be fetched again: it was never checked, the clock is unknown or went back, or
+// `periodSeconds` have passed since `checkedAt`. A period of 0 is always due.
+bool refreshDue(int64_t now, int64_t checkedAt, uint32_t periodSeconds);
+
 }  // namespace trmnl

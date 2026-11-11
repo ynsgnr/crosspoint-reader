@@ -48,4 +48,9 @@ uint32_t nextWakeSeconds(const uint32_t minimumMinutes, const uint32_t serverSec
   return std::max(minimumMinutes * 60, serverWake);
 }
 
+bool refreshDue(const int64_t now, const int64_t checkedAt, const uint32_t periodSeconds) {
+  if (checkedAt <= 0 || now <= 0 || now < checkedAt) return true;
+  return now - checkedAt >= static_cast<int64_t>(periodSeconds);
+}
+
 }  // namespace trmnl

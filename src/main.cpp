@@ -459,6 +459,7 @@ static void armSyncWake() {
 
 static void refreshTrmnlBeforeSleep() {
   if (!sleepImageRefreshWanted() || !trmnl::configured() || !batteryAllowsOpdsSync()) return;
+  if (!trmnl::due(SETTINGS.opdsSyncMinutes)) return;  // /sleep.bmp is still fresh: sleep without the network
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   if (WiFi.status() == WL_CONNECTED || opdssync::joinWifi()) trmnl::refresh();
 }
@@ -551,11 +552,11 @@ void enterDeepSleep(bool fromTimeout = false) {
 
   halTiltSensor.deepSleep();
   display.deepSleep();
+  armSyncWake();  // reads trmnl.json, so before the SD card is shut down
   Storage.prepareForDeepSleep();
   powerManager.setWakeOnCharge(SETTINGS.wakeOnCharge != 0);
   LOG_DBG("MAIN", "Entering deep sleep");
 
-  armSyncWake();
   powerManager.startDeepSleep(gpio, wakeOnHeldButton);
 }
 
@@ -625,8 +626,8 @@ static void syncOnTimerWakeAndSleep() {
   trustedtime::note();
   halTiltSensor.deepSleep();
   if (imageChanged) showSleepImage();
+  armSyncWake();  // reads trmnl.json, so before the SD card is shut down
   Storage.prepareForDeepSleep();
-  armSyncWake();
   powerManager.startDeepSleep(gpio);
 }
 
@@ -825,8 +826,8 @@ void setup() {
       if (!wakeHoldVerified && SETTINGS.shortPwrBtn != CrossPointSettings::SHORT_PWRBTN::SLEEP &&
           !(FREEINK_DEVICE_PICCO && gpio.isUsbConnected())) {
         LOG_DBG("MAIN", "Power-button wake not held through verification, sleeping");
+        armSyncWake();  // reads trmnl.json, so before the SD card is shut down
         Storage.prepareForDeepSleep();
-        armSyncWake();
         powerManager.startDeepSleep(gpio);
       }
       wakePowerReleasePending = true;
@@ -845,8 +846,8 @@ void setup() {
       // the device in a USB-replug boot loop (or sleep right after a flash).
       break;
 #else
+      armSyncWake();  // reads trmnl.json, so before the SD card is shut down
       Storage.prepareForDeepSleep();
-      armSyncWake();
       powerManager.startDeepSleep(gpio);
       break;
 #endif
