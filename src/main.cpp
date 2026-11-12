@@ -415,18 +415,11 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
   // same sleep, and a progress-sync plugin usually subscribes to it alone.
   if (!pluginevents::wantsConnectAny()) return;
   if (powerManager.getBatteryPercentage() < 20) return;
-  // Sleep can be the first WiFi use since boot or deep-sleep wake.
-  WIFI_STORE.loadFromFile();
-  const auto cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
-  if (!cred) return;
+  WIFI_STORE.loadFromFile();  // sleep can be the first WiFi use since boot or deep-sleep wake
+  if (WIFI_STORE.getCredentialCount() == 0) return;
 
   GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(cred->ssid.c_str(), cred->password.c_str());
-  const unsigned long joinDeadline = millis() + 10000;
-  while (WiFi.status() != WL_CONNECTED && millis() < joinDeadline) {
-    delay(100);
-  }
+  opdssync::joinWifi();
   if (WiFi.status() == WL_CONNECTED) {
     trustedtime::startSync();  // snap the clock floor while the network is up
     pluginevents::drain(&renderer);
