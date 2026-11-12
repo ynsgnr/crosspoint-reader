@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <ctime>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -143,7 +144,8 @@ std::vector<WifiCredential> wifiCandidates() {
       if (!seen) inRange.emplace_back(WiFi.RSSI(i) + (credential->ssid == last ? 1000 : 0), *credential);
     }
     std::sort(inRange.begin(), inRange.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
-    for (auto& entry : inRange) candidates.push_back(std::move(entry.second));
+    std::transform(inRange.begin(), inRange.end(), std::back_inserter(candidates),
+                   [](auto& entry) { return std::move(entry.second); });
   }
   WiFi.scanDelete();
   if (candidates.empty()) {
