@@ -102,3 +102,5 @@ See the retink README, "Add a template". Device part: one `TemplateRenderer` und
 See `MIRROR_CHANGES.md`.
 
 CI: the `mirror` workflow builds `x4pro-macro` (artifact `firmware-x4pro-mirror.bin`) for PRs that touch `mirror/`, `platformio.ini` or the Home files.
+
+Wi-Fi: background syncs (TRMNL sleep image, OPDS) join any saved network in range, last connected first.
