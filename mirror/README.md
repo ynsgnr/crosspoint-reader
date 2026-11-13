@@ -5,7 +5,7 @@ renders the template the phone sends. Security, pairing, the keyboard, the app l
 
 ```
 core/        Wire, Envelope, Session (ack/resync/errors), TemplateRenderer + registry, RefreshPolicy, Gfx   (portable)
-templates/   chat/: ChatRenderer + ChatLayout                                                               (portable)
+templates/   chat/: ChatRenderer + ChatLayout; list/: ListRenderer + ListLayout                             (portable)
 device/      MirrorActivity (+ MirrorScreens: unlock pad), MirrorBle, MirrorHid, MirrorSettings, GfxAdapter (firmware only)
 generated/   written by retink/scripts/sync-fork.sh; MANIFEST.sha256 detects hand edits
 sim/ tests/  host simulator (PNG frames) and tests; test/golden/ = transcripts from the Kotlin tests
@@ -89,6 +89,12 @@ The phone sends the supported chat apps it has installed (`PhoneStatus.apps`, la
 
 ## Status band and dark mode
 Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): a dot on the left, hollow while the phone's dark mode is off and filled while it is on, and `Back: menu` on the right. Tapping the top of the screen (or Confirm) sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
+
+## List template
+Rows of a chat app's conversation list (label, preview, time, unread badge); the selected row is shown inverted and the view scrolls to keep it visible.
+The device names a row by id only. Up/Down (and Left/Right, swipes, held buttons) move the highlight and send `Highlight(id)`; Confirm or a tap on a row sends
+`Activate(id)` and the phone touches that row on its own screen (a tap is offered to the template first, so it only toggles dark mode outside the rows;
+`TemplateRenderer::onTap`, `Session::onTap`). Opening the conversation brings the chat template to the front.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template

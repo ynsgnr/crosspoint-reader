@@ -17,6 +17,7 @@
 #include "sim/SimGfx.h"
 #include "sim/Transcript.h"
 #include "templates/chat/ChatRenderer.h"
+#include "templates/list/ListRenderer.h"
 
 using namespace mirror;
 
@@ -586,6 +587,134 @@ static void testGoldens() {
   CHECK(templates >= 1 && n >= 8);
 }
 
+// --- List template ---
+static std::vector<uint8_t> listFull(const gen::list::ListState& s) {
+  Writer w;
+  s.encode(w);
+  return w.bytes();
+}
+
+static gen::list::ListState makeList(size_t n) {
+  gen::list::ListState s;
+  s.title = "Chats";
+  for (size_t i = 1; i <= n; ++i)
+    s.items.push_back({static_cast<uint32_t>(i), "Contact " + std::to_string(i), "preview " + std::to_string(i),
+                       "14:05", static_cast<uint32_t>(i == 2 ? 3 : 0)});
+  return s;
+}
+
+static gen::list::Event decodeListEvent(const std::vector<uint8_t>& p) {
+  Reader r(p.data(), p.size());
+  gen::list::Event e;
+  CHECK(gen::list::decodeEvent(r, e) && r.atEnd());
+  return e;
+}
+
+static int blackPixels(sim::SimGfx& g, int x0, int y0, int x1, int y1) {
+  int n = 0;
+  for (int y = y0; y < y1; ++y)
+    for (int x = x0; x < x1; ++x) n += g.black(x, y);
+  return n;
+}
+
+static void testListRenderingAndOps() {
+  sim::SimGfx g(480, 800);
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(3));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  DirtyRects d = r.render(g);
+  CHECK(d.full && blackPixels(g, 0, 0, 480, 800) > 1000);
+
+  auto diff = [&](const gen::list::Op& op) {
+    Writer w;
+    w.writeUvarint(1);
+    encodeOp(op, w);
+    return r.onDiff(w.bytes().data(), w.bytes().size());
+  };
+  // Changing one row's preview dirties that row only.
+  gen::list::ListItem changed = makeList(3).items[1];
+  changed.detail = "something else";
+  CHECK(diff(gen::list::OpSetItem{1, changed}));
+  d = r.render(g);
+  const int rowH = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  CHECK(!d.full && !d.rects.empty());
+  for (const Rect& rc : d.rects) CHECK(rc.y >= top + rowH && rc.y + rc.h <= top + 2 * rowH);
+
+  // Invalid ops leave the state alone.
+  CHECK(!diff(gen::list::OpSetItem{3, changed}));
+  CHECK(!diff(gen::list::OpTruncateItems{4}));
+  CHECK(diff(gen::list::OpTruncateItems{2}) && r.state().items.size() == 2);
+  CHECK(diff(gen::list::OpAppendItem{makeList(3).items[2]}) && r.state().items.size() == 3);
+  auto full = listFull(makeList(32));
+  CHECK(r.onFull(full.data(), full.size()));
+  CHECK(!diff(gen::list::OpAppendItem{makeList(1).items[0]}));
+
+  // The selected row is inverted: its left margin is black, an unselected row's is white.
+  CHECK(diff(gen::list::OpSetSelected{2}));
+  r.render(g);
+  CHECK(blackPixels(g, 0, top + rowH + 1, 4, top + 2 * rowH - 2) > 0);
+  CHECK(blackPixels(g, 0, top + 1, 4, top + rowH - 2) == 0);
+}
+
+static void testListFitAndScroll() {
+  sim::SimGfx g(480, 800);
+  CHECK(list::fit(g, Font::Body, "short", 400) == "short");
+  const std::string cut = list::fit(
+      g, Font::Body, "caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9", 120);
+  CHECK(cut.size() > 3 && cut.substr(cut.size() - 3) == "..." && g.textWidth(Font::Body, cut) <= 120);
+  CHECK(utf8::isBoundary(cut, cut.size() - 3));
+  CHECK(list::fit(g, Font::Body, "anything", 0) == "...");
+
+  // 32 rows do not fit: moving to the last keeps it on screen and a tap there reaches it.
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(32));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  r.render(g);
+  std::vector<uint8_t> ev;
+  CHECK(r.onButton(Button::Bottom, ev));
+  r.render(g);
+  const size_t vis = list::visibleRows(g);
+  CHECK(vis < 32);
+  const int lastY = g.lineHeight(Font::Title) + 12 + static_cast<int>(vis - 1) * list::rowHeight(g) + 4;
+  CHECK(r.onTap(10, lastY, ev));
+  auto e = decodeListEvent(ev);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 32);
+}
+
+static void testListDeviceEvents() {
+  sim::SimGfx g(480, 800);
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(3));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  r.render(g);
+  std::vector<uint8_t> ev;
+  auto highlight = [&](Button b) {
+    ev.clear();
+    CHECK(r.onButton(b, ev));
+    auto e = decodeListEvent(ev);
+    CHECK(std::holds_alternative<gen::list::EventHighlight>(e));
+    return std::get<gen::list::EventHighlight>(e).item;
+  };
+  CHECK(!r.onButton(Button::Confirm, ev));  // nothing selected yet
+  CHECK(highlight(Button::Down) == 1 && highlight(Button::Down) == 2 && highlight(Button::Down) == 3);
+  CHECK(highlight(Button::Down) == 3 && r.state().selected == 3);  // stays on the last row
+  CHECK(highlight(Button::Up) == 2 && highlight(Button::Top) == 1 && highlight(Button::Bottom) == 3);
+  CHECK(!r.onButton(Button::Left, ev));
+  CHECK(r.onButton(Button::Confirm, ev));
+  auto e = decodeListEvent(ev);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 3);
+
+  // A tap on a row activates it and selects it at once; a tap on the title or below the rows does nothing.
+  r.render(g);
+  const int rowH = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  CHECK(r.onTap(100, top + rowH + 5, ev) && r.state().selected == 2);
+  e = decodeListEvent(ev);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 2);
+  CHECK(!r.onTap(100, 5, ev) && !r.onTap(100, top + 3 * rowH + 20, ev));
+  list::ListRenderer empty;
+  CHECK(!empty.onButton(Button::Down, ev) && !empty.onButton(Button::Bottom, ev) && !empty.onTap(1, 1, ev));
+}
+
 int main() {
   testCrcAndWire();
   testEnvelopeStream();
@@ -608,6 +737,9 @@ int main() {
   testWrapHardBreakAndAlignment();
   testDraftGrowsAndFollowsCursor();
   testSingleOpDiffWithTrailingBytesLeavesTheStateAlone();
+  testListRenderingAndOps();
+  testListFitAndScroll();
+  testListDeviceEvents();
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
