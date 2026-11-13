@@ -167,17 +167,54 @@ inline bool decodeOp(Reader& r, Op& out) {
   }
 }
 
-struct EventHighlight {
-  uint32_t item = 0;
+struct EventScrollUp {
+  uint8_t steps = 0;
 
   void encode(Writer& w) const {
-    w.writeUvarint(item);
+    w.writeU8(steps);
   }
-  static bool decode(Reader& r, EventHighlight& out) {
-    out.item = r.readUvarint();
+  static bool decode(Reader& r, EventScrollUp& out) {
+    out.steps = r.readU8();
     return r.ok();
   }
-  bool operator==(const EventHighlight&) const = default;
+  bool operator==(const EventScrollUp&) const = default;
+};
+
+struct EventScrollDown {
+  uint8_t steps = 0;
+
+  void encode(Writer& w) const {
+    w.writeU8(steps);
+  }
+  static bool decode(Reader& r, EventScrollDown& out) {
+    out.steps = r.readU8();
+    return r.ok();
+  }
+  bool operator==(const EventScrollDown&) const = default;
+};
+
+struct EventScrollTop {
+
+  void encode(Writer& w) const {
+    (void)w;
+  }
+  static bool decode(Reader& r, EventScrollTop& out) {
+    (void)r; (void)out;
+    return r.ok();
+  }
+  bool operator==(const EventScrollTop&) const = default;
+};
+
+struct EventScrollBottom {
+
+  void encode(Writer& w) const {
+    (void)w;
+  }
+  static bool decode(Reader& r, EventScrollBottom& out) {
+    (void)r; (void)out;
+    return r.ok();
+  }
+  bool operator==(const EventScrollBottom&) const = default;
 };
 
 struct EventActivate {
@@ -193,20 +230,26 @@ struct EventActivate {
   bool operator==(const EventActivate&) const = default;
 };
 
-using Event = std::variant<EventHighlight, EventActivate>;
+using Event = std::variant<EventScrollUp, EventScrollDown, EventScrollTop, EventScrollBottom, EventActivate>;
 
 inline void encodeEvent(const Event& v, Writer& w) {
   std::visit([&w](const auto& x) {
     using T = std::decay_t<decltype(x)>;
-    if constexpr (std::is_same_v<T, EventHighlight>) w.writeU8(1);
-    if constexpr (std::is_same_v<T, EventActivate>) w.writeU8(2);
+    if constexpr (std::is_same_v<T, EventScrollUp>) w.writeU8(1);
+    if constexpr (std::is_same_v<T, EventScrollDown>) w.writeU8(2);
+    if constexpr (std::is_same_v<T, EventScrollTop>) w.writeU8(3);
+    if constexpr (std::is_same_v<T, EventScrollBottom>) w.writeU8(4);
+    if constexpr (std::is_same_v<T, EventActivate>) w.writeU8(5);
     x.encode(w);
   }, v);
 }
 inline bool decodeEvent(Reader& r, Event& out) {
   switch (r.readU8()) {
-    case 1: { EventHighlight x; if (!EventHighlight::decode(r, x)) return false; out = std::move(x); return true; }
-    case 2: { EventActivate x; if (!EventActivate::decode(r, x)) return false; out = std::move(x); return true; }
+    case 1: { EventScrollUp x; if (!EventScrollUp::decode(r, x)) return false; out = std::move(x); return true; }
+    case 2: { EventScrollDown x; if (!EventScrollDown::decode(r, x)) return false; out = std::move(x); return true; }
+    case 3: { EventScrollTop x; if (!EventScrollTop::decode(r, x)) return false; out = std::move(x); return true; }
+    case 4: { EventScrollBottom x; if (!EventScrollBottom::decode(r, x)) return false; out = std::move(x); return true; }
+    case 5: { EventActivate x; if (!EventActivate::decode(r, x)) return false; out = std::move(x); return true; }
     default: r.fail(); return false;
   }
 }

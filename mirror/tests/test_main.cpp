@@ -671,7 +671,10 @@ static void testListFitAndScroll() {
   CHECK(r.onFull(bytes.data(), bytes.size()));
   r.render(g);
   std::vector<uint8_t> ev;
-  CHECK(r.onButton(Button::Bottom, ev));
+  Writer w;
+  w.writeUvarint(1);
+  encodeOp(gen::list::OpSetSelected{32}, w);  // the phone's answer to a jump to the bottom
+  CHECK(r.onDiff(w.bytes().data(), w.bytes().size()));
   r.render(g);
   const size_t vis = list::visibleRows(g);
   CHECK(vis < 32);
@@ -688,21 +691,30 @@ static void testListDeviceEvents() {
   CHECK(r.onFull(bytes.data(), bytes.size()));
   r.render(g);
   std::vector<uint8_t> ev;
-  auto highlight = [&](Button b) {
+  // Up/Down move the highlight at once and send Chat's scroll events; at an edge the event still goes (the phone
+  // scrolls).
+  auto press = [&](Button b) {
     ev.clear();
     CHECK(r.onButton(b, ev));
-    auto e = decodeListEvent(ev);
-    CHECK(std::holds_alternative<gen::list::EventHighlight>(e));
-    return std::get<gen::list::EventHighlight>(e).item;
+    return decodeListEvent(ev);
   };
   CHECK(!r.onButton(Button::Confirm, ev));  // nothing selected yet
-  CHECK(highlight(Button::Down) == 1 && highlight(Button::Down) == 2 && highlight(Button::Down) == 3);
-  CHECK(highlight(Button::Down) == 3 && r.state().selected == 3);  // stays on the last row
-  CHECK(highlight(Button::Up) == 2 && highlight(Button::Top) == 1 && highlight(Button::Bottom) == 3);
+  CHECK(std::holds_alternative<gen::list::EventScrollDown>(press(Button::Down)) && r.state().selected == 1);
+  press(Button::Down);
+  press(Button::Down);
+  CHECK(r.state().selected == 3);
+  CHECK(std::holds_alternative<gen::list::EventScrollDown>(press(Button::Down)) &&
+        r.state().selected == 3);  // last row
+  CHECK(std::holds_alternative<gen::list::EventScrollUp>(press(Button::Up)) && r.state().selected == 2);
+  press(Button::Up);
+  CHECK(std::holds_alternative<gen::list::EventScrollUp>(press(Button::Up)) && r.state().selected == 1);  // first row
+  // Top and Bottom wait for the phone's answer.
+  CHECK(std::holds_alternative<gen::list::EventScrollBottom>(press(Button::Bottom)) && r.state().selected == 1);
+  CHECK(std::holds_alternative<gen::list::EventScrollTop>(press(Button::Top)) && r.state().selected == 1);
   CHECK(!r.onButton(Button::Left, ev));
   CHECK(r.onButton(Button::Confirm, ev));
   auto e = decodeListEvent(ev);
-  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 3);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 1);
 
   // A tap on a row activates it and selects it at once; a tap on the title or below the rows does nothing.
   r.render(g);

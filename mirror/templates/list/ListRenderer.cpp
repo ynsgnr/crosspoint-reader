@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "core/ScrollButtons.h"
 #include "core/TemplateRegistry.h"
 
 namespace mirror::list {
@@ -113,36 +114,24 @@ size_t ListRenderer::selectedIndex() const {
   return state_.items.size();
 }
 
-bool ListRenderer::highlight(size_t index, std::vector<uint8_t>& eventPayload) {
-  if (index >= state_.items.size()) return false;
-  state_.selected = state_.items[index].id;
+bool ListRenderer::onButton(Button b, std::vector<uint8_t>& eventPayload) {
   Writer w;
-  encodeEvent(EventHighlight{state_.selected}, w);
+  if (b == Button::Confirm) {
+    if (selectedIndex() >= state_.items.size()) return false;
+    encodeEvent(EventActivate{state_.selected}, w);
+  } else {
+    // The same scroll events and offset arithmetic as the chat; the offset counts the rows after the selected one.
+    const auto ev = scrollEventFor<Event, EventScrollUp, EventScrollDown, EventScrollTop, EventScrollBottom>(b);
+    const size_t n = state_.items.size();
+    if (!ev || n == 0) return false;
+    const size_t sel = selectedIndex();
+    const uint32_t offset =
+        scrollOffsetAfterPress(b, sel < n ? static_cast<uint32_t>(n - 1 - sel) : static_cast<uint32_t>(n), n);
+    if (b == Button::Up || b == Button::Down) state_.selected = state_.items[n - 1 - offset].id;
+    encodeEvent(*ev, w);
+  }
   eventPayload = w.take();
   return w.ok();
-}
-
-bool ListRenderer::onButton(Button b, std::vector<uint8_t>& eventPayload) {
-  const size_t n = state_.items.size(), sel = selectedIndex();
-  switch (b) {
-    case Button::Down:
-      return highlight(sel >= n ? 0 : std::min(sel + 1, n - 1), eventPayload);
-    case Button::Up:
-      return highlight(sel >= n ? 0 : (sel > 0 ? sel - 1 : 0), eventPayload);
-    case Button::Top:
-      return highlight(0, eventPayload);
-    case Button::Bottom:
-      return n > 0 && highlight(n - 1, eventPayload);
-    case Button::Confirm: {
-      if (sel >= n) return false;
-      Writer w;
-      encodeEvent(EventActivate{state_.selected}, w);
-      eventPayload = w.take();
-      return w.ok();
-    }
-    default:
-      return false;
-  }
 }
 
 bool ListRenderer::onTap(int x, int y, std::vector<uint8_t>& eventPayload) {

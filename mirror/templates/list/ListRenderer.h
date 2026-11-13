@@ -25,9 +25,6 @@ class ListRenderer final : public TemplateRenderer {
   static bool applyOp(gen::list::ListState& s, const gen::list::Op& op);
 
  private:
-  // Highlight the row at `index` (the cursor moves at once; the phone's echo is the same absolute id) and tell the
-  // phone.
-  bool highlight(size_t index, std::vector<uint8_t>& eventPayload);
   size_t selectedIndex() const;  // items.size() when none
 
   gen::list::ListState state_;

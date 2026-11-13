@@ -92,9 +92,10 @@ Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`):
 
 ## List template
 Rows of a chat app's conversation list (label, preview, time, unread badge); the selected row is shown inverted and the view scrolls to keep it visible.
-The device names a row by id only. Up/Down (and Left/Right, swipes, held buttons) move the highlight and send `Highlight(id)`; Confirm or a tap on a row sends
-`Activate(id)` and the phone touches that row on its own screen (a tap is offered to the template first, so it only toggles dark mode outside the rows;
-`TemplateRenderer::onTap`, `Session::onTap`). Opening the conversation brings the chat template to the front.
+The device names a row by id only. Up/Down (and Left/Right, swipes, held buttons) move the highlight one row at once and send Chat's scroll events
+(`core/ScrollButtons.h` is shared with the chat); pressing on at the first or last held row makes the phone scroll its list, and the rows it brings into view arrive as diffs.
+Confirm or a tap on a row sends `Activate(id)` and the phone touches that row on its own screen (a tap is offered to the template first, so it only toggles dark mode
+outside the rows; `TemplateRenderer::onTap`, `Session::onTap`). Opening the conversation brings the chat template to the front.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template
