@@ -30,6 +30,9 @@ class Session {
   // False when the template has no event for this button.
   bool onButton(Button b);
 
+  // A tap at (x, y) in the active template's frame coordinates; false when the template has no touch target there.
+  bool onTap(int x, int y);
+
   // Null until the phone sends a full state.
   TemplateRenderer* active() { return active_.get(); }
   uint16_t lastApplied() const { return lastApplied_; }

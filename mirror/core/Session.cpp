@@ -116,6 +116,14 @@ bool Session::onButton(Button b) {
   return true;
 }
 
+bool Session::onTap(int x, int y) {
+  if (!active_) return false;
+  std::vector<uint8_t> payload;
+  if (!active_->onTap(x, y, payload)) return false;
+  emit(active_->templateId(), active_->schemaVersion(), gen::kFlagEvent, 0, payload);
+  return true;
+}
+
 std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceName, uint8_t extraFeatures) const {
   gen::Capabilities c;
   c.protocol_version = gen::kProtocolVersion;

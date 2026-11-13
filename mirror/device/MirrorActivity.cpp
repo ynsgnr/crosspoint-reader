@@ -234,15 +234,24 @@ bool MirrorActivity::loopStatus() {
   return redraw;
 }
 
-// The chat screen: scroll with the side buttons or a swipe (holding a button keeps scrolling); the top of the screen
-// toggles the phone's dark mode.
+// The template screen: scroll with the side buttons or a swipe (holding a button keeps scrolling); the top of the
+// screen toggles the phone's dark mode. A template with touch targets (the list's rows) gets taps first, and Confirm
+// before the dark mode toggle: both reach the phone as the template's own events.
 bool MirrorActivity::loopChat() {
   using Btn = MappedInputManager::Button;
   constexpr int kDarkModeTapHeight = 72;
   int x = 0, y = 0;
-  const bool tapTop = mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y) && y < kDarkModeTapHeight;
-  if (tapTop || mappedInput.wasReleased(Btn::Confirm))
-    session_->sendCommand(mirror::gen::kCmdToggleDarkMode);  // the new state comes back as a status message
+  bool tapTop = false;
+  if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y)) {
+    // The template draws below the status band: its coordinates start there.
+    if (session_->onTap(x, y - mirror::statusBandHeight(gfx_))) return true;
+    tapTop = y < kDarkModeTapHeight;
+  }
+  if (mappedInput.wasReleased(Btn::Confirm)) {
+    if (session_->onButton(mirror::Button::Confirm)) return true;
+    tapTop = true;
+  }
+  if (tapTop) session_->sendCommand(mirror::gen::kCmdToggleDarkMode);  // the new state comes back as a status message
   const auto swipe = mappedInput.wasSwipe();
   const bool upPressed =
       mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::Left) || mappedInput.wasPressed(Btn::PageBack);

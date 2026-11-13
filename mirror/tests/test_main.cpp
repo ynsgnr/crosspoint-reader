@@ -715,6 +715,32 @@ static void testListDeviceEvents() {
   CHECK(!empty.onButton(Button::Down, ev) && !empty.onButton(Button::Bottom, ev) && !empty.onTap(1, 1, ev));
 }
 
+// The session over two templates: a list replaces the chat, a tap and Confirm become frames for the list template.
+static void testSessionListTapAndSwitch() {
+  Device d;
+  d.full(1, {});
+  CHECK(d.session.active() && d.session.active()->templateId() == 1);
+  d.send(gen::kFlagFull, 2, 0, listFull(makeList(3)), 2);
+  CHECK(d.session.active()->templateId() == 2 && d.session.takeTemplateSwitched());
+  d.out.clear();
+  CHECK(!d.session.onTap(100, 100));  // nothing drawn yet: no row to hit
+  sim::SimGfx g(480, 800);
+  d.session.active()->render(g);
+  const int rowH = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  CHECK(d.session.onTap(50, top + 2 * rowH + 3) && d.out.size() == 1);
+  CHECK(d.out[0].has(gen::kFlagEvent) && d.out[0].templateId == 2);
+  auto e = decodeListEvent(d.out[0].payload);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 3);
+  CHECK(d.session.onButton(Button::Confirm) && d.out.size() == 2);  // the tapped row is the selection
+  CHECK(!d.session.onTap(50, 5) && d.out.size() == 2);
+  // A diff against the list's own sequence still applies after the switch.
+  Writer w;
+  w.writeUvarint(1);
+  encodeOp(gen::list::OpSetSelected{1}, w);
+  d.send(gen::kFlagDiff, 3, 2, w.take(), 2);
+  CHECK(static_cast<list::ListRenderer*>(d.session.active())->state().selected == 1);
+}
+
 int main() {
   testCrcAndWire();
   testEnvelopeStream();
@@ -740,6 +766,7 @@ int main() {
   testListRenderingAndOps();
   testListFitAndScroll();
   testListDeviceEvents();
+  testSessionListTapAndSwitch();
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
