@@ -248,7 +248,7 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
   // start.
   if (!ota::armBootGuard(c.rev)) {
     Storage.remove(ota::kStagePath);
-    return fail("Could not save the fallback information: nothing was changed");
+    return fail("Could not save the safety record: nothing was installed. Try again.");
   }
   // The flasher validates the whole image (header, checksum, SHA-256 trailer, chip, board tag) before it erases
   // anything, and only then switches the boot partition.
@@ -311,8 +311,11 @@ void MirrorUpdateActivity::render(RenderLock&&) {
       renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop,
                         (std::string("Running: ") + CROSSPOINT_VERSION + " " + MIRROR_GIT_REV).c_str());
       if (rolledBack_) {
-        renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop + line + metrics.verticalSpacing,
-                          "The last build did not start: rolled back");
+        const int y = infoTop + line + metrics.verticalSpacing;
+        UITheme::drawCenteredWrappedText(
+            renderer, Rect{metrics.contentSidePadding, y, w - metrics.contentSidePadding * 2, 2 * line}, UI_10_FONT_ID,
+            "Last build was rolled back (it did not stay running)", 2, true, EpdFontFamily::REGULAR,
+            UITheme::TextVerticalAlignment::TOP);
       }
       if (popup_.processRender(renderer, mappedInput)) return;
       break;

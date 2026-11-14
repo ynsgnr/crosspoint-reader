@@ -19,14 +19,16 @@ struct BootGuard {
 };
 
 constexpr uint8_t kMaxBootTries = 3;
-constexpr uint32_t kConfirmAfterMs = 20000;
+constexpr uint32_t kConfirmAfterMs = 10000;  // uptime, counted from boot
 
 // What the boot-time check decided.
 enum class BootAction {
   Nothing,   // no trial in progress
   Proceed,   // the build on trial runs, one more try used
-  Rollback,  // it used all its tries without confirming: switch back to prevSlot
-  Stale,     // the record belongs to another build (the install was cut short, or an older firmware ran): dropped
+  Rollback,  // it used all its tries without confirming: switch back to prevSlot. The record is left as it is, so a
+             // boot that cannot finish the rollback (or a failed switch) decides again; report the outcome with
+             // rolledBackGuard/giveUpGuard
+  Stale,  // the record belongs to another build (the install was cut short, or an older firmware ran): dropped
 };
 
 // Fixed-size record kept in NVS.
@@ -41,5 +43,9 @@ void disarmGuard(BootGuard& g);                                         // the f
 BootAction onBootGuard(BootGuard& g, const std::string& runningRev);
 bool guardConfirmDue(const BootGuard& g, uint32_t uptimeMs);
 void confirmGuard(BootGuard& g);
+// The boot partition was switched back: the trial is over and the screen may say so.
+void rolledBackGuard(BootGuard& g);
+// There is nothing to go back to (the old image is gone): the trial is over, quietly.
+void giveUpGuard(BootGuard& g);
 
 }  // namespace mirror::ota

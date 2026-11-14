@@ -25,14 +25,21 @@ namespace {
 constexpr char kNamespace[] = "mirror";
 constexpr char kKey[] = "ota_guard";
 
-bool load(BootGuard& g) {
+enum class Load { Record, None, Error };
+
+// None: nothing stored (or a blob this firmware did not write). Error: NVS could not be read; the caller may try again.
+Load load(BootGuard& g) {
   nvs_handle_t h = 0;
-  if (nvs_open(kNamespace, NVS_READONLY, &h) != ESP_OK) return false;
+  const esp_err_t opened = nvs_open(kNamespace, NVS_READONLY, &h);
+  if (opened == ESP_ERR_NVS_NOT_FOUND) return Load::None;
+  if (opened != ESP_OK) return Load::Error;
   uint8_t blob[kGuardBlobSize];
   size_t len = sizeof(blob);
   const esp_err_t got = nvs_get_blob(h, kKey, blob, &len);
   nvs_close(h);
-  return got == ESP_OK && decodeGuard(blob, len, g);
+  if (got == ESP_ERR_NVS_NOT_FOUND) return Load::None;
+  if (got != ESP_OK) return Load::Error;
+  return decodeGuard(blob, len, g) ? Load::Record : Load::None;
 }
 
 bool save(const BootGuard& g) {
@@ -69,53 +76,71 @@ bool armBootGuard(const std::string& rev) {
 
 void disarmBootGuard() {
   BootGuard g;
-  if (!load(g)) return;
+  if (load(g) != Load::Record) return;
   disarmGuard(g);
   save(g);
 }
 
 void bootGuardAtStart() {
   BootGuard g;
-  if (!load(g)) return;  // nothing recorded, or unreadable: never act on a record that cannot be trusted
+  if (load(g) != Load::Record) return;  // nothing recorded, or unreadable: never act on a record that cannot be trusted
   const BootAction action = onBootGuard(g, MIRROR_GIT_REV);
   if (action == BootAction::Nothing) return;
-  if (action != BootAction::Rollback) {
+  if (action == BootAction::Stale) {
+    // Another build than the one on trial is running (an SD or stock update since, or an older firmware), or the image
+    // does not carry the revision the manifest named: the guard cannot protect it. A build on trial that gets here
+    // means CI and the image disagree about the revision.
+    LOG_ERR("OTA", "stale fallback record: running %s", MIRROR_GIT_REV);
+    save(g);
+    return;
+  }
+  if (action == BootAction::Proceed) {
     save(g);
     LOG_INF("OTA", "build on trial: boot %u of %u", static_cast<unsigned>(g.tries),
             static_cast<unsigned>(kMaxBootTries));
     return;
   }
 
-  // Out of tries. Go back to the old image if it is still there; if not, leave the record cleared so this does not
-  // repeat.
+  // Out of tries. Go back to the old image if it is still there; if not, end the trial so this does not repeat.
   const esp_partition_t* running = esp_ota_get_running_partition();
   const esp_partition_t* prev =
       esp_partition_find_first(ESP_PARTITION_TYPE_APP, static_cast<esp_partition_subtype_t>(g.prevSlot), nullptr);
   const bool canGoBack = prev && running && prev->address != running->address && plausibleImage(prev);
-  g.rolledBack = canGoBack;
   LOG_ERR("OTA", "build %s did not confirm in %u boots: %s", MIRROR_GIT_REV, static_cast<unsigned>(kMaxBootTries),
           canGoBack ? "rolling back" : "no usable previous image");
-  if (canGoBack && ota_boot::switchTo(prev)) {
+  if (!canGoBack) {
+    giveUpGuard(g);
     save(g);
-    esp_restart();
+    return;
   }
-  g.rolledBack = false;
+  // A failed switch leaves the record as it is: the next boot decides again. The restart comes only after a good
+  // switch.
+  if (!ota_boot::switchTo(prev)) return;
+  rolledBackGuard(g);
   save(g);
+  esp_restart();
 }
 
 void bootGuardTick(uint32_t uptimeMs) {
   static bool settled = false;
-  if (settled || uptimeMs < kConfirmAfterMs) return;
-  settled = true;  // one look: a build that is not on trial has nothing to confirm
+  static uint8_t reads = 0;
+  static uint32_t nextReadMs = kConfirmAfterMs;
+  if (settled || uptimeMs < nextReadMs) return;
   BootGuard g;
-  if (!load(g) || !guardConfirmDue(g, uptimeMs)) return;
+  const Load result = load(g);
+  if (result == Load::Error && ++reads < 5) {  // a transient NVS error must not cost a good build its confirmation
+    nextReadMs = uptimeMs + 5000;
+    return;
+  }
+  settled = true;
+  if (result != Load::Record || !guardConfirmDue(g, uptimeMs)) return;
   confirmGuard(g);
   if (save(g)) LOG_INF("OTA", "build %s confirmed", MIRROR_GIT_REV);
 }
 
 bool rolledBackNotice() {
   BootGuard g;
-  return load(g) && g.rolledBack;
+  return load(g) == Load::Record && g.rolledBack;
 }
 
 }  // namespace mirror::ota

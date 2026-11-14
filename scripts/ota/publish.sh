@@ -101,6 +101,9 @@ publish_channel() {
   gh run download "${run% *}" -R "$REPO" -n "$ASSET_SUFFIX" -D "$WORK/dl"
   image="$WORK/$channel-$ASSET_SUFFIX"
   mv "$WORK/dl/firmware.bin" "$image"
+  # The device's automatic fallback acts only on an image that reports this revision (mirror/ota/BootGuard.h); the build
+  # itself checks it, this is the second look at the file that is actually published.
+  LC_ALL=C grep -aqF -- "${sha:0:8}" "$image" || { log "the image does not carry revision ${sha:0:8}: $channel not published"; return 0; }
   python3 "$HERE/channels.py" add --manifest "$MANIFEST" --id "$channel" --title "$title" --rev "${sha:0:8}" \
     --board "$BOARD" --url "$BASE/$channel-$ASSET_SUFFIX" --image "$image" --built "$(date +%s)"
   gh release upload ota "$image" -R "$REPO" --clobber   # the image first: the manifest never names a missing file

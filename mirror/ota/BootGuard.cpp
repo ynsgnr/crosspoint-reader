@@ -65,12 +65,7 @@ BootAction onBootGuard(BootGuard& g, const std::string& runningRev) {
     disarmGuard(g);
     return BootAction::Stale;
   }
-  if (g.tries >= kMaxBootTries) {
-    g.pending = false;
-    g.tries = 0;
-    g.rolledBack = true;
-    return BootAction::Rollback;
-  }
+  if (g.tries >= kMaxBootTries) return BootAction::Rollback;
   ++g.tries;
   return BootAction::Proceed;
 }
@@ -78,6 +73,17 @@ BootAction onBootGuard(BootGuard& g, const std::string& runningRev) {
 bool guardConfirmDue(const BootGuard& g, uint32_t uptimeMs) { return g.pending && uptimeMs >= kConfirmAfterMs; }
 
 void confirmGuard(BootGuard& g) {
+  g.pending = false;
+  g.tries = 0;
+}
+
+void rolledBackGuard(BootGuard& g) {
+  g.pending = false;
+  g.tries = 0;
+  g.rolledBack = true;
+}
+
+void giveUpGuard(BootGuard& g) {
   g.pending = false;
   g.tries = 0;
 }

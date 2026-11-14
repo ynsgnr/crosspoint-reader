@@ -223,8 +223,18 @@ void testBootGuardTrialAndRollback() {
   // A build that never confirms gets kMaxBootTries boots, and the next boot rolls back.
   for (int i = 1; i <= kMaxBootTries; ++i) OCHECK(onBootGuard(g, "a16f221d") == BootAction::Proceed && g.tries == i);
   OCHECK(onBootGuard(g, "a16f221d") == BootAction::Rollback);
-  OCHECK(!g.pending && g.rolledBack && g.prevSlot == 1);
+  // The decision changes nothing by itself: a boot that cannot finish the rollback (or a failed switch) decides again.
+  OCHECK(g.pending && g.tries == kMaxBootTries && !g.rolledBack);
+  OCHECK(onBootGuard(g, "a16f221d") == BootAction::Rollback && g.tries == kMaxBootTries);
+  rolledBackGuard(g);
+  OCHECK(!g.pending && g.rolledBack && g.prevSlot == 1 && g.tries == 0);
   OCHECK(onBootGuard(g, "97f15374") == BootAction::Nothing);  // the old image boots: nothing left to do
+  // No old image to go back to: the trial just ends, with no notice.
+  armGuard(g, 1, "dddddddd");
+  for (int i = 0; i < kMaxBootTries; ++i) onBootGuard(g, "dddddddd");
+  OCHECK(onBootGuard(g, "dddddddd") == BootAction::Rollback);
+  giveUpGuard(g);
+  OCHECK(!g.pending && !g.rolledBack && onBootGuard(g, "dddddddd") == BootAction::Nothing);
   // A build that confirms in time keeps its place.
   armGuard(g, 0, "bbbbbbbb");
   OCHECK(onBootGuard(g, "bbbbbbbb") == BootAction::Proceed);

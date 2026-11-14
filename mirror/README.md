@@ -120,15 +120,25 @@ The device trusts only what the fork's OTA key signed, and every step before the
 4. The image goes to the SD card, its SHA-256 and size must equal the signed manifest's, then `FirmwareFlasher` validates it (header, checksum, SHA-256 trailer, chip, board tag) before it erases anything, and only then switches the boot partition.
 
 **Automatic fallback.** Before it flashes, the installer records that the new build is *on trial* and which slot holds the running image (`ota/BootGuard.h`, NVS key `ota_guard`); if that cannot be saved, nothing is flashed.
-Every boot of that build counts a try (first thing in `setup()`, `device/OtaBoot.cpp`); a build whose main loop has run for 20 seconds confirms itself. A build that has not confirmed after 3 boots is replaced by the old image on the 4th: the boot partition is switched back and the device restarts.
-The record names the revision of the build on trial, so it never acts on another image, and a record that cannot be read or fails its checksum is ignored (the guard never rolls back on doubt). The Firmware channels screen says when the last build was rolled back.
-Its limits: it runs inside the new build, so it cannot help a build that fails before `setup()` (static initialisation, the bootloader), a build that boots and runs 20 seconds but misbehaves, or three power-offs inside the first 20 seconds. For those, recover by hand (below).
+Every boot of that build counts a try (near the top of `setup()`, `device/OtaBoot.cpp`); a build whose main loop has run for 10 seconds confirms itself. A build that has not confirmed after 3 boots is replaced by the old image on the 4th: the boot partition is switched back and the device restarts.
+The Firmware channels screen says when the last build was rolled back.
+Safety of the guard itself: the record names the revision of the build on trial, so it never acts on another image; a damaged or unreadable record never causes a rollback; and a rollback only happens if the old slot still holds an image for this chip. The guard depends on the revision the image reports (`MIRROR_GIT_REV`) being exactly the first 8 characters of its commit, which is what the manifest names:
+the `mirror` workflow fails the build if they differ, and the publisher checks the file again.
 
-**Recovery by hand.** Keep a known-good image on the SD card, anywhere (the picker lists every `.bin`), for example `/firmware-x4pro-mirror.bin`: download the artifact `firmware-x4pro-mirror.bin` of a green `mirror` workflow run on `develop-retink` (Actions > the run > Artifacts; it is a zip holding `firmware.bin`).
-Power on holding **Down** (X4 Pro) and the power button: the recovery screen lists the `.bin` files on the card; choose it and confirm. This runs early in `setup()`, so it works unless the build fails before that point; then use the USB web flasher.
-Try this once on a healthy device before relying on it.
-The download is hashed and size-checked against the manifest only after it ends, so a hostile server can fill the SD card with a body that has no Content-Length until that check removes it.
-The flash itself is the stock one (`esp_partition` writes into the inactive slot, then `ota_boot::switchTo`), so a failure before the switch leaves the running slot untouched.
+What it does not cover:
+* **Starts too short.** Every boot counts, including a wake from sleep. Three starts that each end (power-off or sleep) within 10 seconds count as failures and roll a good build back. After an install, let the device run for 10 seconds before switching it off.
+* **Failures before `setup()`** (static initialisation, the bootloader) and **a build that runs for 10 seconds and then misbehaves**: the guard runs inside the new build and cannot see them. Use the manual recovery below.
+* **The first install.** It protects an install only if the build doing the installing and the build being installed both contain it. Installing the first guard-bearing build from an older one is unprotected.
+* **Other update paths** (the SD-card update, the stock OTA, the web flasher) do not arm the guard. A record left from an earlier trial is ignored when a different build runs, and dropped. One corner: if such an update is cut short by a power loss after it began overwriting the old slot, a later rollback could land on a damaged image. The guard checks only the image header.
+* **No old image to go back to.** Then the trial just ends and the new build keeps running; only the log says so.
+* **The crash report** of the last failed boot is not written when the device rolls back (the restart clears it). The reports of the earlier failed boots are: each boot saves the previous boot's panic to `/crash_report.txt`.
+It is custom, in the app, because ESP-IDF's own rollback (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`) needs a different bootloader, and the bootloader of these devices is not updated over OTA.
+
+**Recovery by hand.** Do this *now*, on a healthy device, before you rely on channel updates; it has not been tested on a device yet.
+1. Get a known-good image: Actions > a green `mirror` run on `develop-retink` > Artifacts > `firmware-x4pro-mirror.bin` (needs a GitHub login; runs and their artifacts expire after 90 days, so keep a copy). Unzip it: it contains `firmware.bin`.
+2. Copy `firmware.bin` to the root of the SD card.
+3. With the device fully off, hold **Down** (X4 Pro) and press the power button. The recovery screen opens a file browser at the card root, showing only `.bin` files (open folders to find yours); choose `firmware.bin` and confirm.
+This runs early in `setup()`, so it works unless the build fails before that point. Then use the USB web flasher.
 
 **Publishing** (`.github/workflows/ota-publish.yml`, `scripts/ota/`). It runs from the base branch (`pull_request_target`) and never runs pull request code: the PR's firmware is built by the ordinary `mirror` workflow; the publisher waits for that run, hashes the image,
 rewrites `channels.json` (`scripts/ota/channels.py`), signs it with `openssl` and uploads image, manifest and signature to the release `ota`. A channel disappears when its PR is closed or loses the label (every run sweeps stale ones).
