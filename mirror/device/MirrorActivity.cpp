@@ -68,13 +68,17 @@ void MirrorActivity::setScreen(Screen s) {
 bool MirrorActivity::showsChat() const { return screen_ == Screen::Status && session_ && session_->active(); }
 
 void MirrorActivity::loop() {
-  // Back goes up one level: unlock pad -> chat or status page, chat -> menu, menu or status page -> leave Mirror.
+  // Back goes up one level: unlock pad -> status page; on a template screen the phone goes back first (a chat
+  // to its list, the list to the app's start) and the device follows its screen; when the phone cannot go back any
+  // further (or is locked or silent) the menu opens; menu or status page -> leave Mirror.
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     bool leave = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);  // released before finish(): onExit takes it too
       if (screen_ == Screen::Unlock)
-        setScreen(Screen::Status);
+        setScreen(Screen::Menu);  // the status page, not the app (that would reopen the pad)
+      else if (showsChat() && ble_.connected() && session_->phoneStatus() && !phoneLocked())
+        session_->goBack();  // the phone answers: an earlier view pops, back_unavailable opens the menu
       else if (showsChat())
         setScreen(Screen::Menu);
       else
@@ -98,11 +102,20 @@ void MirrorActivity::loop() {
   if (overflowed) session_->requestResync();
   if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
 
+  if (session_->takeBackUnavailable() && showsChat()) {
+    setScreen(Screen::Menu);
+    redraw = true;
+  }
   announceKeyboardToPhone();
   sendDueEnter();
   switch (screen_) {
     case Screen::Status:
-      redraw |= session_->active() ? loopChat() : loopStatus();
+      if (session_->active() && phoneLocked()) {  // a locked phone shows the PIN pad, never the app it was last in
+        openUnlock();
+        redraw = true;
+      } else {
+        redraw |= session_->active() ? loopChat() : loopStatus();
+      }
       break;
     case Screen::Menu:
       redraw |= loopStatus();
@@ -234,15 +247,24 @@ bool MirrorActivity::loopStatus() {
   return redraw;
 }
 
-// The chat screen: scroll with the side buttons or a swipe (holding a button keeps scrolling); the top of the screen
-// toggles the phone's dark mode.
+// The template screen: scroll with the side buttons or a swipe (holding a button keeps scrolling); the top of the
+// screen toggles the phone's dark mode. A template with touch targets (the list's rows) gets taps first, and Confirm
+// before the dark mode toggle: both reach the phone as the template's own events.
 bool MirrorActivity::loopChat() {
   using Btn = MappedInputManager::Button;
   constexpr int kDarkModeTapHeight = 72;
   int x = 0, y = 0;
-  const bool tapTop = mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y) && y < kDarkModeTapHeight;
-  if (tapTop || mappedInput.wasReleased(Btn::Confirm))
-    session_->sendCommand(mirror::gen::kCmdToggleDarkMode);  // the new state comes back as a status message
+  bool tapTop = false;
+  if (mappedInput.hasTouch() && mappedInput.wasScreenTapped(x, y)) {
+    // The template draws below the status band: its coordinates start there.
+    if (session_->onTap(x, y - mirror::statusBandHeight(gfx_))) return true;
+    tapTop = y < kDarkModeTapHeight;
+  }
+  if (mappedInput.wasReleased(Btn::Confirm)) {
+    if (session_->onButton(mirror::Button::Confirm)) return true;
+    tapTop = true;
+  }
+  if (tapTop) session_->sendCommand(mirror::gen::kCmdToggleDarkMode);  // the new state comes back as a status message
   const auto swipe = mappedInput.wasSwipe();
   const bool upPressed =
       mappedInput.wasPressed(Btn::Up) || mappedInput.wasPressed(Btn::Left) || mappedInput.wasPressed(Btn::PageBack);
@@ -339,7 +361,7 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
   forceFull_ |= session_->takeTemplateSwitched();
   forceFull_ |= session_->takeResyncHappened();
   const bool dark = mirror::bandDarkMode(session_->phoneStatus());
-  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, dark);
+  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, dark, session_->canGoBack());
   const mirror::RefreshPlan plan = policy_.plan(dirty, gfx_.width(), gfx_.height() - mirror::statusBandHeight(gfx_),
                                                 t->refreshOverrides(), forceFull_);
   forceFull_ = false;

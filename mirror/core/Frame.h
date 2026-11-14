@@ -15,6 +15,7 @@ bool bandDarkMode(const std::optional<gen::PhoneStatus>& phone);
 
 // Draws the template under the band, then the band: the phone's dark mode as a dot on the left (filled = on, hollow =
 // off; tapping the band toggles it) and "Back: menu" on the right. Returns what the template says changed.
-DirtyRects renderFrame(TemplateRenderer& renderer, Gfx& gfx, bool darkMode);
+// `canGoBack`: a view lies below this one (Session::canGoBack); the band says Back returns to it.
+DirtyRects renderFrame(TemplateRenderer& renderer, Gfx& gfx, bool darkMode, bool canGoBack = false);
 
 }  // namespace mirror

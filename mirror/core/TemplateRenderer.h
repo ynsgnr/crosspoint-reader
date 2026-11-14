@@ -41,6 +41,10 @@ class TemplateRenderer {
   // True when the phone should hear about this button.
   virtual bool onButton(Button b, std::vector<uint8_t>& eventPayload) = 0;
 
+  // A tap on the touch screen at (x, y) in the coordinates of the Gfx given to render(). True when the phone should
+  // hear about it; templates without touch targets keep the default.
+  virtual bool onTap(int x, int y, std::vector<uint8_t>& eventPayload) { return false; }
+
   // Canonical one-line state description; golden transcripts compare it with the Kotlin codec's dump().
   virtual std::string dump() const { return {}; }
 

@@ -1,5 +1,7 @@
 #include "core/Session.h"
 
+#include <algorithm>
+
 namespace mirror {
 
 void Session::emit(uint8_t templateId, uint8_t schema, uint8_t flags, uint16_t base,
@@ -60,6 +62,7 @@ void Session::handle(const Envelope& e, bool& changed) {
     if (fresh) {
       active_ = std::move(fresh);
       switched_ = true;
+      pushView(e.templateId);
     }
   } else if (e.has(gen::kFlagDiff)) {
     if (awaitingFull_) return;  // the phone's full reply is on its way; one resync per gap is enough
@@ -75,7 +78,31 @@ void Session::handle(const Envelope& e, bool& changed) {
   if (e.has(gen::kFlagAckRequest)) emit(e.templateId, e.schemaVersion, gen::kFlagAck, e.seq);
 }
 
+void Session::pushView(uint8_t templateId) {
+  const auto at = std::find(stack_.begin(), stack_.end(), templateId);
+  if (at != stack_.end()) {
+    stack_.erase(at + 1, stack_.end());  // back to a view already shown: everything opened on top of it is gone
+    return;
+  }
+  if (stack_.size() >= kMaxViewStack) stack_.erase(stack_.begin());
+  stack_.push_back(templateId);
+}
+
+bool Session::takeBackUnavailable() {
+  if (!backUnavailable_) return false;
+  backUnavailable_ = false;
+  if (stack_.size() > 1) stack_.erase(stack_.begin(), stack_.end() - 1);
+  return true;
+}
+
 void Session::handleControl(const Envelope& e, bool& changed) {
+  if (e.has(gen::kFlagCommand)) {  // phone -> device; commands this firmware does not know are ignored
+    Reader r(e.payload.data(), e.payload.size());
+    gen::ControlCommand c;
+    if (gen::ControlCommand::decode(r, c) && r.atEnd() && c.command == gen::kCmdBackUnavailable)
+      backUnavailable_ = true;
+    return;
+  }
   if (!e.has(gen::kFlagStatus)) return;
   Reader r(e.payload.data(), e.payload.size());
   gen::PhoneStatus status;
@@ -112,6 +139,14 @@ bool Session::onButton(Button b) {
   if (!active_) return false;
   std::vector<uint8_t> payload;
   if (!active_->onButton(b, payload)) return false;
+  emit(active_->templateId(), active_->schemaVersion(), gen::kFlagEvent, 0, payload);
+  return true;
+}
+
+bool Session::onTap(int x, int y) {
+  if (!active_) return false;
+  std::vector<uint8_t> payload;
+  if (!active_->onTap(x, y, payload)) return false;
   emit(active_->templateId(), active_->schemaVersion(), gen::kFlagEvent, 0, payload);
   return true;
 }

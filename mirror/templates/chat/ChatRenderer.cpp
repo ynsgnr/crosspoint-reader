@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "core/ScrollButtons.h"
 #include "core/TemplateRegistry.h"
 #include "core/Utf8.h"
 
@@ -153,23 +154,11 @@ DirtyRects ChatRenderer::render(Gfx& gfx) {
 bool ChatRenderer::onButton(Button b, std::vector<uint8_t>& eventPayload) {
   // Up/Down move the view at once through the messages held here; the phone's answer (the same absolute offset, or a
   // new window when the view leaves what this device holds) follows as a diff.
-  const uint32_t oldest = state_.messages.empty() ? 0 : static_cast<uint32_t>(state_.messages.size() - 1);
-  Event ev;
-  if (b == Button::Up) {
-    ev = EventScrollUp{1};
-    if (state_.scroll < oldest) ++state_.scroll;
-  } else if (b == Button::Down) {
-    ev = EventScrollDown{1};
-    if (state_.scroll > 0) --state_.scroll;
-  } else if (b == Button::Top) {
-    ev = EventScrollTop{};
-  } else if (b == Button::Bottom) {
-    ev = EventScrollBottom{};
-  } else {
-    return false;
-  }
+  const auto ev = scrollEventFor<Event, EventScrollUp, EventScrollDown, EventScrollTop, EventScrollBottom>(b);
+  if (!ev) return false;
+  state_.scroll = scrollOffsetAfterPress(b, state_.scroll, state_.messages.size());
   Writer w;
-  encodeEvent(ev, w);
+  encodeEvent(*ev, w);
   eventPayload = w.take();
   return w.ok();
 }

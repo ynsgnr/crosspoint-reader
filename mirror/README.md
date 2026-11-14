@@ -5,7 +5,7 @@ renders the template the phone sends. Security, pairing, the keyboard, the app l
 
 ```
 core/        Wire, Envelope, Session (ack/resync/errors), TemplateRenderer + registry, RefreshPolicy, Gfx   (portable)
-templates/   chat/: ChatRenderer + ChatLayout                                                               (portable)
+templates/   chat/: ChatRenderer + ChatLayout; list/: ListRenderer + ListLayout                             (portable)
 device/      MirrorActivity (+ MirrorScreens: unlock pad), MirrorBle, MirrorHid, MirrorSettings, GfxAdapter (firmware only)
 generated/   written by retink/scripts/sync-fork.sh; MANIFEST.sha256 detects hand edits
 sim/ tests/  host simulator (PNG frames) and tests; test/golden/ = transcripts from the Kotlin tests
@@ -89,6 +89,25 @@ The phone sends the supported chat apps it has installed (`PhoneStatus.apps`, la
 
 ## Status band and dark mode
 Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`): a dot on the left, hollow while the phone's dark mode is off and filled while it is on, and `Back: menu` on the right. Tapping the top of the screen (or Confirm) sends the `toggle_dark_mode` command to the phone; the new state comes back as a `status` message.
+
+## List template
+Rows of a chat app's conversation list (label, preview, time, unread badge); the selected row is shown inverted and the view scrolls to keep it visible.
+The rows share the whole height under the title (`rowHeightFor`, clamped to 1-4 times the natural row height), so a short list leaves no empty band below it.
+The device names a row by id only. Up/Down (and Left/Right, swipes, held buttons) move the highlight one row at once and send Chat's scroll events
+(`core/ScrollButtons.h` is shared with the chat); pressing on at the first or last held row makes the phone scroll its list, and the rows it brings into view arrive as diffs.
+Confirm or a tap on a row sends `Activate(id)` and the phone touches that row on its own screen (a tap is offered to the template first, so it only toggles dark mode
+outside the rows; `TemplateRenderer::onTap`, `Session::onTap`). Opening the conversation brings the chat template to the front.
+
+## View stack and Back
+`Session` keeps the templates the device showed (`canGoBack()` while more than one: a chat opened from the list is list, chat). A switch to a template already in
+the stack pops to it, like Android's back stack. On a template screen Back always sends the `back` command first (`Session::goBack`): the phone performs its own back
+action, the earlier screen comes to the front (the stack pops, or the same template shows what the app went back to). When the phone cannot go back any further (the
+app left to the launcher, or there was nothing to go back to) it sends `back_unavailable` (`Session::takeBackUnavailable`) and the device opens its menu, the launcher.
+A locked or silent phone cannot answer, so Back opens the menu at once. The band says `Back: previous` while a view lies below.
+
+## Locked phone
+While the phone says it is locked, a template screen is replaced by the PIN pad (it wakes the phone, like **Unlock phone**), so the last app is never shown over a lock screen. Back from the pad opens
+the status page (Unlock phone, Forget phone...); the pad does not reopen until the phone locks again or **Back to chat** is chosen while it is still locked. The pad closes by itself when the phone unlocks.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template

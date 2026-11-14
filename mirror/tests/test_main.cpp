@@ -17,6 +17,7 @@
 #include "sim/SimGfx.h"
 #include "sim/Transcript.h"
 #include "templates/chat/ChatRenderer.h"
+#include "templates/list/ListRenderer.h"
 
 using namespace mirror;
 
@@ -586,6 +587,251 @@ static void testGoldens() {
   CHECK(templates >= 1 && n >= 8);
 }
 
+// --- List template ---
+static std::vector<uint8_t> listFull(const gen::list::ListState& s) {
+  Writer w;
+  s.encode(w);
+  return w.bytes();
+}
+
+static gen::list::ListState makeList(size_t n) {
+  gen::list::ListState s;
+  s.title = "Chats";
+  for (size_t i = 1; i <= n; ++i)
+    s.items.push_back({static_cast<uint32_t>(i), "Contact " + std::to_string(i), "preview " + std::to_string(i),
+                       "14:05", static_cast<uint32_t>(i == 2 ? 3 : 0)});
+  return s;
+}
+
+static gen::list::Event decodeListEvent(const std::vector<uint8_t>& p) {
+  Reader r(p.data(), p.size());
+  gen::list::Event e;
+  CHECK(gen::list::decodeEvent(r, e) && r.atEnd());
+  return e;
+}
+
+static int blackPixels(sim::SimGfx& g, int x0, int y0, int x1, int y1) {
+  int n = 0;
+  for (int y = y0; y < y1; ++y)
+    for (int x = x0; x < x1; ++x) n += g.black(x, y);
+  return n;
+}
+
+static void testListRenderingAndOps() {
+  sim::SimGfx g(480, 800);
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(3));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  DirtyRects d = r.render(g);
+  CHECK(d.full && blackPixels(g, 0, 0, 480, 800) > 1000);
+
+  auto diff = [&](const gen::list::Op& op) {
+    Writer w;
+    w.writeUvarint(1);
+    encodeOp(op, w);
+    return r.onDiff(w.bytes().data(), w.bytes().size());
+  };
+  // Changing one row's preview dirties that row only.
+  gen::list::ListItem changed = makeList(3).items[1];
+  changed.detail = "something else";
+  CHECK(diff(gen::list::OpSetItem{1, changed}));
+  d = r.render(g);
+  const int rowH = list::rowHeightFor(g, 3), top = g.lineHeight(Font::Title) + 12;
+  CHECK(!d.full && !d.rects.empty());
+  for (const Rect& rc : d.rects) CHECK(rc.y >= top + rowH && rc.y + rc.h <= top + 2 * rowH);
+
+  // Invalid ops leave the state alone.
+  CHECK(!diff(gen::list::OpSetItem{3, changed}));
+  CHECK(!diff(gen::list::OpTruncateItems{4}));
+  CHECK(diff(gen::list::OpTruncateItems{2}) && r.state().items.size() == 2);
+  CHECK(diff(gen::list::OpAppendItem{makeList(3).items[2]}) && r.state().items.size() == 3);
+  auto full = listFull(makeList(32));
+  CHECK(r.onFull(full.data(), full.size()));
+  CHECK(!diff(gen::list::OpAppendItem{makeList(1).items[0]}));
+
+  // The selected row is inverted: its left margin is black, an unselected row's is white.
+  CHECK(diff(gen::list::OpSetSelected{2}));
+  r.render(g);
+  const int rowH32 = list::rowHeightFor(g, 32);  // the list now holds 32 rows
+  CHECK(blackPixels(g, 0, top + rowH32 + 1, 4, top + 2 * rowH32 - 2) > 0);
+  CHECK(blackPixels(g, 0, top + 1, 4, top + rowH32 - 2) == 0);
+}
+
+// The rows share the whole height under the title: no empty band, and a short list is capped, not stretched without
+// limit.
+static void testListFillsTheScreen() {
+  sim::SimGfx g(480, 800);
+  const int natural = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  CHECK(list::rowHeightFor(g, 32) >= natural &&
+        list::rowHeightFor(g, 32) * static_cast<int>(list::visibleRows(g)) <= 800 - top);
+  CHECK(800 - top - list::rowHeightFor(g, 32) * static_cast<int>(list::visibleRows(g)) <
+        static_cast<int>(list::visibleRows(g)));  // < 1 px per row left over
+  CHECK(list::rowHeightFor(g, 1) == 4 * natural && list::rowHeightFor(g, 0) == 4 * natural);
+  const size_t fits = list::visibleRows(g);
+  CHECK(list::rowHeightFor(g, fits) == (800 - top) / static_cast<int>(fits));
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(fits));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  r.render(g);
+  int lowest = 0;
+  for (int y = 0; y < 800; ++y)
+    if (blackPixels(g, 0, y, 480, y + 1) > 0) lowest = y;
+  CHECK(lowest > 800 - list::rowHeightFor(g, fits));  // the last row's rule is within its own height of the bottom edge
+}
+
+static void testListFitAndScroll() {
+  sim::SimGfx g(480, 800);
+  CHECK(list::fit(g, Font::Body, "short", 400) == "short");
+  const std::string cut = list::fit(
+      g, Font::Body, "caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9 caf\xC3\xA9", 120);
+  CHECK(cut.size() > 3 && cut.substr(cut.size() - 3) == "..." && g.textWidth(Font::Body, cut) <= 120);
+  CHECK(utf8::isBoundary(cut, cut.size() - 3));
+  CHECK(list::fit(g, Font::Body, "anything", 0) == "...");
+
+  // 32 rows do not fit: moving to the last keeps it on screen and a tap there reaches it.
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(32));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  r.render(g);
+  std::vector<uint8_t> ev;
+  Writer w;
+  w.writeUvarint(1);
+  encodeOp(gen::list::OpSetSelected{32}, w);  // the phone's answer to a jump to the bottom
+  CHECK(r.onDiff(w.bytes().data(), w.bytes().size()));
+  r.render(g);
+  const size_t vis = list::visibleRows(g);
+  CHECK(vis < 32);
+  const int lastY = g.lineHeight(Font::Title) + 12 + static_cast<int>(vis - 1) * list::rowHeightFor(g, 32) + 4;
+  CHECK(r.onTap(10, lastY, ev));
+  auto e = decodeListEvent(ev);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 32);
+}
+
+static void testListDeviceEvents() {
+  sim::SimGfx g(480, 800);
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(3));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  r.render(g);
+  std::vector<uint8_t> ev;
+  // Up/Down move the highlight at once and send Chat's scroll events; at an edge the event still goes (the phone
+  // scrolls).
+  auto press = [&](Button b) {
+    ev.clear();
+    CHECK(r.onButton(b, ev));
+    return decodeListEvent(ev);
+  };
+  CHECK(!r.onButton(Button::Confirm, ev));  // nothing selected yet
+  CHECK(std::holds_alternative<gen::list::EventScrollDown>(press(Button::Down)) && r.state().selected == 1);
+  press(Button::Down);
+  press(Button::Down);
+  CHECK(r.state().selected == 3);
+  CHECK(std::holds_alternative<gen::list::EventScrollDown>(press(Button::Down)) &&
+        r.state().selected == 3);  // last row
+  CHECK(std::holds_alternative<gen::list::EventScrollUp>(press(Button::Up)) && r.state().selected == 2);
+  press(Button::Up);
+  CHECK(std::holds_alternative<gen::list::EventScrollUp>(press(Button::Up)) && r.state().selected == 1);  // first row
+  // Top and Bottom wait for the phone's answer.
+  CHECK(std::holds_alternative<gen::list::EventScrollBottom>(press(Button::Bottom)) && r.state().selected == 1);
+  CHECK(std::holds_alternative<gen::list::EventScrollTop>(press(Button::Top)) && r.state().selected == 1);
+  CHECK(!r.onButton(Button::Left, ev));
+  CHECK(r.onButton(Button::Confirm, ev));
+  auto e = decodeListEvent(ev);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 1);
+
+  // A tap on a row activates it and selects it at once; a tap on the title or below the rows does nothing.
+  r.render(g);
+  const int rowH = list::rowHeightFor(g, 3), top = g.lineHeight(Font::Title) + 12;
+  CHECK(r.onTap(100, top + rowH + 5, ev) && r.state().selected == 2);
+  e = decodeListEvent(ev);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 2);
+  CHECK(!r.onTap(100, 5, ev) && !r.onTap(100, top + 3 * rowH + 20, ev));
+  list::ListRenderer empty;
+  CHECK(!empty.onButton(Button::Down, ev) && !empty.onButton(Button::Bottom, ev) && !empty.onTap(1, 1, ev));
+}
+
+// The session over two templates: a list replaces the chat, a tap and Confirm become frames for the list template.
+static void testSessionListTapAndSwitch() {
+  Device d;
+  d.full(1, {});
+  CHECK(d.session.active() && d.session.active()->templateId() == 1);
+  d.send(gen::kFlagFull, 2, 0, listFull(makeList(3)), 2);
+  CHECK(d.session.active()->templateId() == 2 && d.session.takeTemplateSwitched());
+  d.out.clear();
+  CHECK(!d.session.onTap(100, 100));  // nothing drawn yet: no row to hit
+  sim::SimGfx g(480, 800);
+  d.session.active()->render(g);
+  const int rowH = list::rowHeightFor(g, 3), top = g.lineHeight(Font::Title) + 12;
+  CHECK(d.session.onTap(50, top + 2 * rowH + 3) && d.out.size() == 1);
+  CHECK(d.out[0].has(gen::kFlagEvent) && d.out[0].templateId == 2);
+  auto e = decodeListEvent(d.out[0].payload);
+  CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 3);
+  CHECK(d.session.onButton(Button::Confirm) && d.out.size() == 2);  // the tapped row is the selection
+  CHECK(!d.session.onTap(50, 5) && d.out.size() == 2);
+  // A diff against the list's own sequence still applies after the switch.
+  Writer w;
+  w.writeUvarint(1);
+  encodeOp(gen::list::OpSetSelected{1}, w);
+  d.send(gen::kFlagDiff, 3, 2, w.take(), 2);
+  CHECK(static_cast<list::ListRenderer*>(d.session.active())->state().selected == 1);
+}
+
+// The view stack: the list opens a chat (push), Back asks the phone, the list coming back pops.
+static void testViewStackAndBack() {
+  Device d;
+  d.full(1, {});
+  CHECK(!d.session.canGoBack());  // one view: Back opens the menu
+  d.send(gen::kFlagFull, 2, 0, listFull(makeList(2)), 2);
+  CHECK(d.session.canGoBack());
+  d.out.clear();
+  d.session.goBack();
+  CHECK(d.out.size() == 1 && d.out[0].has(gen::kFlagCommand) && d.out[0].templateId == gen::kControlTemplateId);
+  Reader r(d.out[0].payload.data(), d.out[0].payload.size());
+  gen::ControlCommand c;
+  CHECK(gen::ControlCommand::decode(r, c) && c.command == gen::kCmdBack);
+  CHECK(d.session.canGoBack());                   // nothing popped yet: the phone has not answered
+  d.send(gen::kFlagFull, 3, 0, chatFull({}), 1);  // the phone went back and shows the earlier view
+  CHECK(d.session.active()->templateId() == 1 && !d.session.canGoBack());
+  d.send(gen::kFlagFull, 4, 0, listFull(makeList(2)), 2);
+  d.send(
+      gen::kFlagDiff, 5, 4,
+      [] {
+        Writer w;
+        w.writeUvarint(0);
+        return w.take();
+      }(),
+      2);  // same template: no push
+  CHECK(d.session.canGoBack());
+  d.send(gen::kFlagFull, 6, 0, chatFull({}), 1);
+  CHECK(!d.session.canGoBack());
+}
+
+static void testBandHintFollowsTheStack() {
+  sim::SimGfx plain(480, 800), back(480, 800);
+  chat::ChatRenderer a, b;
+  renderFrame(a, plain, false, false);
+  renderFrame(b, back, false, true);
+  CHECK(plain.toRgb({}) != back.toRgb({}));
+}
+
+// The phone's "back is exhausted" command: once, and the stack collapses to the view on screen.
+static void testBackUnavailableFromThePhone() {
+  Device d;
+  d.full(1, {});
+  d.send(gen::kFlagFull, 2, 0, listFull(makeList(2)), 2);
+  CHECK(d.session.canGoBack() && !d.session.takeBackUnavailable());
+  auto command = [&](uint8_t cmd) {
+    Writer w;
+    gen::ControlCommand{cmd, 0, 0}.encode(w);
+    d.send(gen::kFlagCommand, 3, 0, w.take(), static_cast<uint8_t>(gen::kControlTemplateId), 0);
+  };
+  command(gen::kCmdToggleDarkMode);  // another command: ignored
+  CHECK(!d.session.takeBackUnavailable());
+  command(gen::kCmdBackUnavailable);
+  CHECK(d.session.takeBackUnavailable() && !d.session.canGoBack() && !d.session.takeBackUnavailable());
+  CHECK(d.session.active()->templateId() == 2);  // the screen itself is unchanged
+}
+
 int main() {
   testCrcAndWire();
   testEnvelopeStream();
@@ -608,6 +854,14 @@ int main() {
   testWrapHardBreakAndAlignment();
   testDraftGrowsAndFollowsCursor();
   testSingleOpDiffWithTrailingBytesLeavesTheStateAlone();
+  testListRenderingAndOps();
+  testListFillsTheScreen();
+  testListFitAndScroll();
+  testListDeviceEvents();
+  testSessionListTapAndSwitch();
+  testViewStackAndBack();
+  testBandHintFollowsTheStack();
+  testBackUnavailableFromThePhone();
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
