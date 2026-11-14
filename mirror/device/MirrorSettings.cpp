@@ -34,5 +34,20 @@ void commitSecurityEpoch(uint8_t epoch) {
   if (n.ok) nvs_set_u8(n.h, "sec_epoch", epoch), nvs_commit(n.h);
 }
 
+uint32_t otaLastIssued() {
+  nvs_handle_t h = 0;
+  if (nvs_open("mirror", NVS_READONLY, &h) != ESP_OK) return 0;
+  uint32_t v = 0;
+  if (nvs_get_u32(h, "ota_issued", &v) != ESP_OK) v = 0;
+  nvs_close(h);
+  return v;
+}
+
+void commitOtaIssued(uint32_t issued) {
+  if (issued <= otaLastIssued()) return;  // only ever forward
+  Nvs n(NVS_READWRITE);
+  if (n.ok) nvs_set_u32(n.h, "ota_issued", issued), nvs_commit(n.h);
+}
+
 }  // namespace mirror::settings
 #endif

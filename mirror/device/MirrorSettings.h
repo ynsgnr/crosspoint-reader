@@ -11,5 +11,10 @@ bool securityEpochStale(uint8_t epoch);
 // Records `epoch` (after stale bonds were deleted).
 void commitSecurityEpoch(uint8_t epoch);
 
+// The `issued` time of the newest OTA manifest accepted so far (0 = none). An older manifest is a replay and is
+// refused.
+uint32_t otaLastIssued();
+void commitOtaIssued(uint32_t issued);
+
 }  // namespace mirror::settings
 #endif

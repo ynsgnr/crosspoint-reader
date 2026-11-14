@@ -6,6 +6,7 @@
 
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "device/MirrorUpdateActivity.h"
 
 namespace fui = freeink::ui;
 
@@ -24,6 +25,7 @@ MoreMenuActivity::MoreMenuActivity(GfxRenderer& renderer, MappedInputManager& ma
   add(Row::FileTransfer, tr(STR_FILE_TRANSFER), UIIcon::Transfer);
   if (libraryEntry != 0) add(Row::Library, plugins_ ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER), UIIcon::Plugins);
   add(Row::Settings, tr(STR_SETTINGS_TITLE), UIIcon::Settings);
+  add(Row::Firmware, "Firmware channels", UIIcon::Transfer);
 }
 
 void MoreMenuActivity::buildScreen(UiScreen& screen) {
@@ -55,6 +57,9 @@ void MoreMenuActivity::activateIndex(int index) {
       break;
     case Row::Settings:
       activityManager.goToSettings();
+      break;
+    case Row::Firmware:
+      activityManager.replaceActivity(std::make_unique<MirrorUpdateActivity>(renderer, mappedInput));
       break;
   }
 }

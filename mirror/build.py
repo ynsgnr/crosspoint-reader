@@ -12,7 +12,7 @@ Import("env")  # noqa: F821  # type: ignore[name-defined]
 def mirror_sources(target, source, env, for_signature):
     if env.subst("$ARDUINO_LIB_COMPILE_FLAG") == "Build":
         return ""
-    return "+<../mirror/core/> +<../mirror/device/> +<../mirror/templates/>"
+    return "+<../mirror/core/> +<../mirror/device/> +<../mirror/templates/> +<../mirror/ota/>"
 
 
 env["MIRROR_SOURCES"] = mirror_sources  # noqa: F821
