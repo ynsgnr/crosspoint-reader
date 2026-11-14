@@ -20,10 +20,11 @@ import time
 RELEASE_BASE = "https://github.com/ynsgnr/crosspoint-reader/releases/download/ota/"
 MAX_CHANNELS = 8
 MAX_TITLE = 96
-ID_RE = re.compile(r"^(develop|pr-[1-9][0-9]{0,5})$")
-HEX_RE = re.compile(r"^[0-9a-f]{64}$")
-REV_RE = re.compile(r"^[0-9a-f]{7,12}$")
-FILE_RE = re.compile(r"^[A-Za-z0-9._-]+\.bin$")
+ID_RE = re.compile(r"(develop|pr-[1-9][0-9]{0,5})")
+HEX_RE = re.compile(r"[0-9a-f]{64}")
+REV_RE = re.compile(r"[0-9a-f]{7,12}")
+FILE_RE = re.compile(r"[A-Za-z0-9._-]+\.bin")
+MAX_MANIFEST = 6 * 1024  # the device reads at most 8 KiB (kMaxDocument in mirror/ota/MiniJson.h)
 
 
 def clean_title(text):
@@ -48,11 +49,14 @@ def dump(doc, path, issued):
     doc["issued"] = max(int(issued), int(doc.get("issued", 0)) + 1)
     doc["channels"].sort(key=lambda c: (c["id"] != "develop", -int(c["id"][3:]) if c["id"] != "develop" else 0))
     if len(doc["channels"]) > MAX_CHANNELS:
-        newest = sorted(doc["channels"], key=lambda c: c["built"], reverse=True)[:MAX_CHANNELS]
-        doc["channels"] = [c for c in doc["channels"] if c in newest]
+        # develop is never the one to go: it is the channel every device has to be able to reach.
+        keep = [c for c in doc["channels"] if c["id"] == "develop"]
+        rest = sorted((c for c in doc["channels"] if c["id"] != "develop"), key=lambda c: c["built"], reverse=True)
+        keep += rest[:MAX_CHANNELS - len(keep)]
+        doc["channels"] = [c for c in doc["channels"] if c in keep]
     text = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
-    if len(text) > 12 * 1024:
-        raise SystemExit("manifest would exceed the device's 16 KiB limit")
+    if len(text) > MAX_MANIFEST:
+        raise SystemExit("manifest would exceed %d bytes" % MAX_MANIFEST)
     with open(path, "w", encoding="ascii", newline="") as f:
         f.write(text)
     return doc
@@ -69,14 +73,14 @@ def image_info(path):
 
 
 def cmd_add(a):
-    if not ID_RE.match(a.id):
+    if not ID_RE.fullmatch(a.id):
         raise SystemExit("bad channel id %r" % a.id)
-    if not REV_RE.match(a.rev):
+    if not REV_RE.fullmatch(a.rev):
         raise SystemExit("bad revision %r" % a.rev)
-    if not a.url.startswith(RELEASE_BASE) or not FILE_RE.match(a.url[len(RELEASE_BASE):]) or ".." in a.url:
+    if not a.url.startswith(RELEASE_BASE) or not FILE_RE.fullmatch(a.url[len(RELEASE_BASE):]) or ".." in a.url:
         raise SystemExit("the image URL must be a plain file under %s" % RELEASE_BASE)
     sha, size = image_info(a.image)
-    if not HEX_RE.match(sha) or size < 512 * 1024:
+    if not HEX_RE.fullmatch(sha) or size < 512 * 1024:
         raise SystemExit("%s does not look like a firmware image (%d bytes)" % (a.image, size))
     doc = load(a.manifest)
     doc["channels"] = [c for c in doc["channels"] if c["id"] != a.id]

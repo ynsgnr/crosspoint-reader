@@ -1,6 +1,7 @@
 #if defined(CROSSPOINT_MIRROR)
 #include "device/OtaVerify.h"
 
+#include <Arduino.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -57,7 +58,9 @@ bool sha256OfFile(const char* sdPath, std::string& hexOut, size_t& sizeOut) {
   mbedtls_sha256_init(&sha);
   bool ok = mbedtls_sha256_starts(&sha, /*is224=*/0) == 0;
   size_t remaining = total;
+  unsigned chunks = 0;
   while (ok && remaining > 0) {
+    if ((++chunks & 0x3F) == 0) delay(1);  // hashing 8 MB takes seconds: let the idle task and the watchdog run
     const size_t want = std::min(kChunk, remaining);
     const int got = file.read(buf.get(), want);
     ok = got > 0 && static_cast<size_t>(got) == want && mbedtls_sha256_update(&sha, buf.get(), want) == 0;

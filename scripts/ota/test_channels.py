@@ -97,6 +97,36 @@ class ChannelsTest(unittest.TestCase):
             self.assertNotIn("pr-1", ids)
             self.assertNotIn("pr-2", ids)
 
+    def test_develop_is_never_trimmed_away(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = os.path.join(d, "channels.json")
+            img = image(d, "i.bin")
+            run("add", "--manifest", m, "--id", "develop", "--title", "t", "--rev", "a16f221d",
+                "--url", channels.RELEASE_BASE + "develop.bin", "--image", img, "--built", "1")  # the oldest
+            for n in range(1, 11):
+                run("add", "--manifest", m, "--id", "pr-%d" % n, "--title", "t", "--rev", "a16f221d",
+                    "--url", channels.RELEASE_BASE + "pr-%d.bin" % n, "--image", img, "--built", str(1000 + n))
+            ids = [c["id"] for c in json.load(open(m))["channels"]]
+            self.assertEqual(len(ids), channels.MAX_CHANNELS)
+            self.assertEqual(ids[0], "develop")
+            self.assertIn("pr-10", ids)
+            self.assertNotIn("pr-3", ids)
+
+    def test_a_trailing_newline_is_not_an_id(self):
+        for pattern, ok in ((channels.ID_RE, "pr-1"), (channels.HEX_RE, "a" * 64), (channels.REV_RE, "a16f221d"),
+                            (channels.FILE_RE, "x.bin")):
+            self.assertTrue(pattern.fullmatch(ok))
+            self.assertFalse(pattern.fullmatch(ok + "\n"))
+
+    def test_manifest_stays_within_the_device_limit(self):
+        with tempfile.TemporaryDirectory() as d:
+            m = os.path.join(d, "channels.json")
+            img = image(d, "i.bin")
+            for n in range(1, 9):
+                run("add", "--manifest", m, "--id", "pr-%d" % n, "--title", "x" * channels.MAX_TITLE, "--rev", "a16f221d",
+                    "--url", channels.RELEASE_BASE + "pr-%d-firmware-x4pro-mirror.bin" % n, "--image", img, "--built", "1")
+            self.assertLess(os.path.getsize(m), channels.MAX_MANIFEST)
+
     def test_titles_are_one_clean_line(self):
         self.assertEqual(channels.clean_title("a\n\tb\x00c   d"), "a b c d")
         self.assertEqual(len(channels.clean_title("x" * 500)), channels.MAX_TITLE)

@@ -11,7 +11,7 @@ inline constexpr char kManifestUrl[] =
 inline constexpr char kSignatureUrl[] =
     "https://github.com/ynsgnr/crosspoint-reader/releases/download/ota/channels.json.sig";
 inline constexpr uint16_t kMaxSignatureBytes = 128;  // a DER ECDSA P-256 signature is 70-72 bytes
-inline constexpr unsigned kMinBatteryPercent = 25;   // an update that runs out of power half way is the one real risk
+inline constexpr unsigned kMinBatteryPercent = 25;   // power loss in the middle of the flash
 inline constexpr char kStagePath[] = "/.mirror-ota.bin";
 
 }  // namespace mirror::ota

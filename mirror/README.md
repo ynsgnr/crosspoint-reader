@@ -115,22 +115,28 @@ The device trusts only what the fork's OTA key signed, and every step before the
 
 1. Wi-Fi, then `channels.json` and `channels.json.sig` from the release `ota` of this repository (`ota/OtaConfig.h`).
 2. The signature (ECDSA P-256 / SHA-256, `kOtaPublicKeyDer` in `ota/OtaKey.h`) is checked **before** the file is parsed. Then the device's own policy (`ota/OtaManifest.cpp`): only this board, only file names under the release's URL, a plausible size,
-   lower-case SHA-256, at most 8 channels, and a manifest older than one already accepted is a replay and is refused.
+   lower-case SHA-256, at most 8 channels, a manifest of at most 8 KiB (the publisher stays under 6 KiB), and a manifest older than one already accepted is a replay and is refused.
 3. You choose a channel and confirm (Cancel is the default). The battery must be at 25% or more.
 4. The image goes to the SD card, its SHA-256 and size must equal the signed manifest's, then `FirmwareFlasher` validates it (header, checksum, SHA-256 trailer, chip, board tag) before it erases anything, and only then switches the boot partition.
 
-What this does not give you: a rollback. The stock X3/X4 bootloader has no app-rollback support, so a signed build that boots but misbehaves stays until you install another one (a channel again, the SD-card update, or the web flasher).
+What this does not give you: a rollback. None is provided or tested, so a signed build that boots but misbehaves stays until you install another one (a channel again, the SD-card update, or the web flasher).
 The flash itself is the stock one (`esp_partition` writes into the inactive slot, then `ota_boot::switchTo`), so a failure before the switch leaves the running slot untouched.
 
 **Publishing** (`.github/workflows/ota-publish.yml`, `scripts/ota/`). It runs from the base branch (`pull_request_target`) and never runs pull request code: the PR's firmware is built by the ordinary `mirror` workflow; the publisher waits for that run, hashes the image,
 rewrites `channels.json` (`scripts/ota/channels.py`), signs it with `openssl` and uploads image, manifest and signature to the release `ota`. A channel disappears when its PR is closed or loses the label (every run sweeps stale ones).
 Pull requests from forks are never published. `scripts/ota/test_channels.py` checks the tool, the manifest fixture that the host tests also read (`mirror/test/ota/`), and the openssl signature round trip.
+The manifest rules exist twice, in `mirror/ota/OtaManifest.cpp` (what the device accepts) and `scripts/ota/channels.py` (what CI writes); a change to either needs the other and the fixture (`python3 scripts/ota/test_channels.py --write-fixture`).
+A failed GitHub call stops the publisher before it changes anything, so a transient error can never shorten the manifest. GitHub keeps only one waiting run per concurrency group, so a publish can be dropped; the manual run of the workflow (*Run workflow*) is a reconcile that adds whatever is missing or out of date.
 
 One-time setup (repository owner):
 1. Settings > Environments > New environment `ota-signing`; Deployment branches: *Selected branches* > `develop-retink`. A pull request branch can then not read the key.
 2. Add the environment secret `OTA_SIGNING_KEY`: the PEM private key that belongs to the public key in `ota/OtaKey.h`, e.g. `gh secret set OTA_SIGNING_KEY --env ota-signing < ota-signing.pem`. The publisher refuses to sign with any other key.
-3. Keep a backup of the private key outside the repository. Losing it means a new pair (`mirror/scripts/ota-keygen.sh`) and a firmware update, by SD card or web flasher, before channels work again.
-4. Put the label `ota` on a pull request to get a `pr-<number>` channel.
+3. Keep a backup of the private key outside the repository (`ota-signing.pem` is git-ignored; never commit it). Losing it means a new pair and a firmware update by SD card or web flasher before channels work again.
+4. Create the label `ota` once (Issues > Labels). A pull request that carries it gets a `pr-<number>` channel.
+5. Seed the `develop` channel: the next push to `develop-retink` that touches files the `mirror` workflow watches publishes it (or run the workflow by hand once it exists on the default branch). Until then the screen says "No channel list is published yet".
+
+A pull request channel needs a green `mirror` build of the PR head, so the PR must change files that workflow watches (`mirror/**`, `scripts/ota/**`, `platformio.ini`, the Home files); the publisher waits up to 30 minutes for that build. A first-time contributor's workflow runs may need approval.
+To rotate the key: `mirror/scripts/ota-keygen.sh`, replace `kOtaPublicKeyDer` in `ota/OtaKey.h`, update the secret, and put the new firmware on every device by SD card or web flasher: devices still holding the old key accept nothing signed by the new one.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template

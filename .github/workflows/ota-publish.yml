@@ -17,9 +17,10 @@ on:
   push:
     branches: [develop-retink]
     paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
-  workflow_dispatch:   # re-runs the sweep (and republishes nothing): repairs a missed event
+  workflow_dispatch:   # reconcile: drops stale PR channels and publishes develop and labelled PRs that are missing or out of date
 
-# One publisher at a time: channels.json is read, changed and written back.
+# One publisher at a time: channels.json is read, changed and written back. GitHub keeps only one waiting run per group, so
+# a publish can be dropped; the manual run (reconcile) adds whatever is missing.
 concurrency:
   group: ota-channels
   cancel-in-progress: false
@@ -54,16 +55,19 @@ jobs:
         run: |
           set -euo pipefail
           kind=sweep; channel=""; sha=""; title=""
-          if [ "$EVENT" = push ]; then
+          if [ "$EVENT" = workflow_dispatch ]; then
+            kind=reconcile
+          elif [ "$EVENT" = push ]; then
             kind=develop; channel=develop; sha="$GITHUB_SHA"
             title="develop-retink: $(git log -1 --format=%s)"
           elif [ "$EVENT" = pull_request_target ] && [ "$ACTION" != closed ] \
                && printf '%s' "$LABELS" | python3 -c 'import json,sys; sys.exit(0 if "ota" in json.load(sys.stdin) else 1)'; then
             kind=pr; channel="pr-$PR"; sha="$PR_SHA"; title="$PR_TITLE"
           fi
+          delim="EOF_$(od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"   # the title is untrusted text: it must not be able to end the heredoc
           {
             echo "kind=$kind"; echo "channel=$channel"; echo "sha=$sha"
-            echo "title<<EOF_TITLE"; printf '%s\n' "$title"; echo "EOF_TITLE"
+            echo "title<<$delim"; printf '%s\n' "$title"; echo "$delim"
           } >> "$GITHUB_OUTPUT"
 
       - name: Publish

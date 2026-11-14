@@ -40,9 +40,18 @@ namespace ota = mirror::ota;
 namespace {
 std::string clip(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n - 1) + "~"; }
 
-// Fetches `url` into memory, at most `limit` bytes (more aborts the transfer).
+// A TLS session needs total free heap and one contiguous block; free heap alone ignores fragmentation.
+bool heapAllowsTls() {
+  return ESP.getFreeHeap() >= HttpDownloader::MIN_TLS_FREE_HEAP &&
+         ESP.getMaxAllocHeap() >= HttpDownloader::MIN_TLS_MAX_ALLOC;
+}
+
+// Fetches `url` into memory, at most `limit` bytes (more aborts the transfer). The buffer is reserved once, up front:
+// with -fno-exceptions a failed allocation inside a growing std::string aborts the device. `limit` stays well below
+// MIN_TLS_MAX_ALLOC, which the caller has already checked.
 bool fetchBytes(const char* url, size_t limit, std::string& out) {
   out.clear();
+  out.reserve(limit);
   bool tooBig = false;
   const bool ok = HttpDownloader::fetchUrl(url, [&](const uint8_t* data, size_t len) {
     if (out.size() + len > limit) {
@@ -58,6 +67,9 @@ bool fetchBytes(const char* url, size_t limit, std::string& out) {
 
 void MirrorUpdateActivity::onEnter() {
   Activity::onEnter();
+  // A power cut during an earlier download leaves the staged file (or its .part) behind.
+  Storage.remove(ota::kStagePath);
+  Storage.remove((std::string(ota::kStagePath) + ".part").c_str());
   WiFi.mode(WIFI_STA);
   startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
                          [this](const ActivityResult& result) { onWifiSelectionComplete(!result.isCancelled); });
@@ -93,20 +105,28 @@ void MirrorUpdateActivity::onWifiSelectionComplete(const bool success) {
   if (!success) return finish();
   setState(State::Fetching);
   if (!fetchManifest()) return;
-  if (manifest_.channels.empty()) return fail("No firmware builds are published for this device");
+  if (manifest_.channels.empty()) return fail("No firmware builds are published for this device yet");
   chooseChannel();
 }
 
 bool MirrorUpdateActivity::fetchManifest() {
-  if (ESP.getFreeHeap() < HttpDownloader::MIN_TLS_FREE_HEAP) {
-    fail("Not enough free memory for a secure connection");
+  // The short signature first, so the manifest buffer does not sit through a second TLS handshake.
+  std::string signature, json;
+  if (!heapAllowsTls()) {
+    fail("Not enough free memory for a secure connection: go Back and try again");
     return false;
   }
-  std::string json, signature;
-  if (!fetchBytes(ota::kManifestUrl, ota::json::kMaxDocument, json) ||
-      !fetchBytes(ota::kSignatureUrl, ota::kMaxSignatureBytes, signature)) {
+  if (!fetchBytes(ota::kSignatureUrl, ota::kMaxSignatureBytes, signature)) {
     fail(HttpDownloader::lastStatus() == 404 ? "No channel list is published yet"
-                                             : "Could not reach the update server");
+                                             : "Could not reach the update server: check Wi-Fi and try again");
+    return false;
+  }
+  if (!heapAllowsTls()) {
+    fail("Not enough free memory for a secure connection: go Back and try again");
+    return false;
+  }
+  if (!fetchBytes(ota::kManifestUrl, ota::json::kMaxDocument, json)) {
+    fail("Could not reach the update server: check Wi-Fi and try again");
     return false;
   }
   ota::Policy policy;
@@ -119,9 +139,10 @@ bool MirrorUpdateActivity::fetchManifest() {
   const ota::Trust trust = ota::openManifest(json, reinterpret_cast<const uint8_t*>(signature.data()), signature.size(),
                                              verifier, policy, manifest_);
   if (trust != ota::Trust::Ok) {
-    fail(trust == ota::Trust::Stale          ? "The channel list is older than one already seen"
-         : trust == ota::Trust::BadSignature ? "The channel list is not signed by the update key"
-                                             : "The channel list is not valid");
+    fail(trust == ota::Trust::Stale ? "This channel list is out of date: try again later"
+         : trust == ota::Trust::BadSignature
+             ? "The channel list is not signed by the update key (or was being replaced): try again"
+             : "The channel list is not valid");
     return false;
   }
   mirror::settings::commitOtaIssued(manifest_.issued);
@@ -139,9 +160,11 @@ void MirrorUpdateActivity::chooseChannel() {
     RenderLock lock(*this);
     state_ = State::Choosing;
   }
+  // The callbacks only record the choice: show() replaces the popup's callback, so it must not run inside it.
   popup_.show(StrId::STR_UPDATE, labels, 0, [this](const int idx) {
     if (idx < 0 || static_cast<size_t>(idx) >= manifest_.channels.size()) return finish();
-    confirmChannel(static_cast<size_t>(idx));
+    pendingIndex_ = static_cast<size_t>(idx);
+    pending_ = Pending::Confirm;
   });
   requestUpdate();
 }
@@ -149,17 +172,26 @@ void MirrorUpdateActivity::chooseChannel() {
 void MirrorUpdateActivity::confirmChannel(const size_t index) {
   const ota::Channel& c = manifest_.channels[index];
   const std::string headline = c.id + " (" + c.rev + "): " + clip(c.title, 60);
-  static const char* const options[] = {"Cancel", "Install"};
+  const char* const options[] = {tr(STR_CANCEL), "Install"};
   {
     RenderLock lock(*this);
     state_ = State::Confirming;
   }
   // Cancel is the default: a stray Confirm press must not start an install.
   popup_.show("Install this build?", headline.c_str(), options, 2, 0, [this, index](const int idx) {
-    if (idx == 1) return install(manifest_.channels[index]);
-    chooseChannel();
+    pendingIndex_ = index;
+    pending_ = idx == 1 ? Pending::Install : Pending::Choose;
   });
   requestUpdate();
+}
+
+void MirrorUpdateActivity::runPending() {
+  const Pending what = pending_;
+  pending_ = Pending::None;
+  if (what == Pending::Choose) return chooseChannel();
+  if (pendingIndex_ >= manifest_.channels.size()) return;
+  if (what == Pending::Confirm) return confirmChannel(pendingIndex_);
+  if (what == Pending::Install) return install(manifest_.channels[pendingIndex_]);
 }
 
 void MirrorUpdateActivity::progress(const size_t done, const size_t total) {
@@ -176,18 +208,27 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
     return fail("Battery is below " + std::to_string(ota::kMinBatteryPercent) + "%: charge it first");
   const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
   if (!dest || c.size > dest->size) return fail("The image does not fit the update partition");
-  if (ESP.getFreeHeap() < HttpDownloader::MIN_TLS_FREE_HEAP) return fail("Not enough free memory for a download");
+  if (!heapAllowsTls()) return fail("Not enough free memory for a download: go Back and try again");
 
   done_ = 0;
   total_ = c.size;
   lastPercent_ = -1;
   setState(State::Downloading);
   Storage.remove(ota::kStagePath);
-  const auto err =
-      HttpDownloader::downloadToFile(c.url, ota::kStagePath, [this](size_t d, size_t t) { progress(d, t); });
+  // A body longer than the signed size can only be wrong: stop it instead of filling the SD card.
+  abort_ = false;
+  const size_t signedSize = c.size;
+  const auto err = HttpDownloader::downloadToFile(
+      c.url, ota::kStagePath,
+      [this, signedSize](size_t d, size_t t) {
+        if (d > signedSize) abort_ = true;
+        progress(d, t);
+      },
+      &abort_);
   if (err != HttpDownloader::OK) {
     Storage.remove(ota::kStagePath);
-    return fail("Download failed");
+    return fail(abort_ ? "The download is larger than the signed channel list says"
+                       : "Download failed: check Wi-Fi and the SD card, then try again");
   }
 
   setState(State::Checking);
@@ -214,7 +255,8 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
     const bool wrongDevice =
         result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD;
     return fail(wrongDevice ? tr(STR_FIRMWARE_WRONG_DEVICE)
-                            : std::string("The image was refused: ") + firmware_flash::resultName(result));
+                            : std::string("The image was not installed (") + firmware_flash::resultName(result) +
+                                  "). The running firmware is unchanged.");
   }
 
   setState(State::Finished);
@@ -224,6 +266,7 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
 }
 
 void MirrorUpdateActivity::loop() {
+  if (pending_ != Pending::None) return runPending();  // before the popup checks: a chosen popup is already inactive
   if (state_ == State::Choosing || state_ == State::Confirming) {
     if (popup_.handleInput(mappedInput, [this] { requestUpdate(); })) return;
     finish();  // dismissed without a choice

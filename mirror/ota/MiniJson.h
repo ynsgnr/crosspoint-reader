@@ -27,10 +27,10 @@ struct Value {
   }
 };
 
-constexpr size_t kMaxDocument = 16 * 1024;
+constexpr size_t kMaxDocument = 8 * 1024;
 constexpr int kMaxDepth = 6;
 constexpr size_t kMaxString = 512;
-constexpr size_t kMaxNodes = 600;
+constexpr size_t kMaxNodes = 200;
 
 // True when `text` is exactly one JSON value (surrounding white space allowed). Numbers must be integers.
 bool parse(const std::string& text, Value& out);

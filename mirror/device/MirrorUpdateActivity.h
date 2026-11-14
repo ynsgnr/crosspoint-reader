@@ -17,10 +17,8 @@ class MirrorUpdateActivity final : public Activity {
   void onExit() override;
   void loop() override;
   void render(RenderLock&&) override;
-  bool preventAutoSleep() override {
-    return state_ != State::Choosing && state_ != State::Confirming && state_ != State::Failed;
-  }
-  bool skipLoopDelay() override { return true; }  // no power saving while a transfer runs
+  bool preventAutoSleep() override { return busy(); }
+  bool skipLoopDelay() override { return busy(); }  // no power saving while a transfer runs, but in the menus
 
  private:
   enum class State {
@@ -36,6 +34,15 @@ class MirrorUpdateActivity final : public Activity {
     ShuttingDown
   };
 
+  // A step that blocks the loop and must not be interrupted by sleep: everything except the menus and the end screens.
+  bool busy() const {
+    return state_ == State::Fetching || state_ == State::Downloading || state_ == State::Checking ||
+           state_ == State::Flashing;
+  }
+  // What a popup choice asks for. Run from loop(), never inside the popup's own callback (show() replaces it).
+  enum class Pending { None, Choose, Confirm, Install };
+
+  void runPending();
   void onWifiSelectionComplete(bool success);
   bool fetchManifest();  // false: failed_ says why
   void chooseChannel();
@@ -51,5 +58,8 @@ class MirrorUpdateActivity final : public Activity {
   size_t done_ = 0, total_ = 0;
   int lastPercent_ = -1;
   OptionPopup popup_;
+  Pending pending_ = Pending::None;
+  size_t pendingIndex_ = 0;
+  bool abort_ = false;  // set when the download outgrows the signed size
 };
 #endif
