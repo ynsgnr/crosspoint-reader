@@ -28,7 +28,7 @@ DirtyRects renderFrame(TemplateRenderer& renderer, Gfx& gfx, bool darkMode, bool
   const int r = (band - 6) / 2, cx = 8 + r, cy = band / 2;
   fillDisc(gfx, cx, cy, r, true);                      // the whole dot, or its ring
   if (!darkMode) fillDisc(gfx, cx, cy, r - 2, false);  // hollow while dark mode is off
-  const std::string hint = canGoBack ? "Back: previous" : "Back: menu";
+  const std::string hint = canGoBack ? "Back: previous" : "Back";
   gfx.drawText(Font::Small, gfx.width() - 8 - gfx.textWidth(Font::Small, hint), 2, hint, true);
   return dirty;
 }

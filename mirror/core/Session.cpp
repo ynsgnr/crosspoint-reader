@@ -88,7 +88,21 @@ void Session::pushView(uint8_t templateId) {
   stack_.push_back(templateId);
 }
 
+bool Session::takeBackUnavailable() {
+  if (!backUnavailable_) return false;
+  backUnavailable_ = false;
+  if (stack_.size() > 1) stack_.erase(stack_.begin(), stack_.end() - 1);
+  return true;
+}
+
 void Session::handleControl(const Envelope& e, bool& changed) {
+  if (e.has(gen::kFlagCommand)) {  // phone -> device; commands this firmware does not know are ignored
+    Reader r(e.payload.data(), e.payload.size());
+    gen::ControlCommand c;
+    if (gen::ControlCommand::decode(r, c) && r.atEnd() && c.command == gen::kCmdBackUnavailable)
+      backUnavailable_ = true;
+    return;
+  }
   if (!e.has(gen::kFlagStatus)) return;
   Reader r(e.payload.data(), e.payload.size());
   gen::PhoneStatus status;

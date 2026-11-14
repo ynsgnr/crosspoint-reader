@@ -38,6 +38,7 @@ inline constexpr uint8_t kCmdUnlockRequest = 2;
 inline constexpr uint8_t kCmdHidStatus = 3;
 inline constexpr uint8_t kCmdBack = 6;
 inline constexpr uint8_t kCmdLaunchApp = 5;
+inline constexpr uint8_t kCmdBackUnavailable = 7;
 inline constexpr uint8_t kFeaturePhoneStatus = 1;
 inline constexpr uint8_t kFeatureHidKeyboard = 2;
 inline constexpr const char* kUuidService = "6d1a0001-7e1c-4f3b-9a53-5c0b2d9a11e0";

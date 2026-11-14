@@ -68,16 +68,18 @@ void MirrorActivity::setScreen(Screen s) {
 bool MirrorActivity::showsChat() const { return screen_ == Screen::Status && session_ && session_->active(); }
 
 void MirrorActivity::loop() {
-  // Back goes up one level: unlock pad -> chat or status page, a template with a view below it (a chat opened from the
-  // list) -> the phone goes back, any other template -> menu, menu or status page -> leave Mirror.
+  // Back goes up one level: unlock pad -> chat or status page; on a template screen the phone goes back first (a chat
+  // to its list, the list to the app's start) and the device follows its screen; when the phone cannot go back any
+  // further (or is locked or silent) the menu opens; menu or status page -> leave Mirror.
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     bool leave = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);  // released before finish(): onExit takes it too
       if (screen_ == Screen::Unlock)
         setScreen(Screen::Status);
-      else if (showsChat() && session_->canGoBack())
-        session_->goBack();  // the phone's screen answers; the device pops its stack when the earlier view comes back
+      else if (showsChat() && ble_.connected() && session_->phoneStatus() && !phoneLocked())
+        session_
+            ->goBack();  // the phone's screen answers: an earlier view pops the stack, back_unavailable opens the menu
       else if (showsChat())
         setScreen(Screen::Menu);
       else
@@ -101,6 +103,10 @@ void MirrorActivity::loop() {
   if (overflowed) session_->requestResync();
   if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
 
+  if (session_->takeBackUnavailable() && showsChat()) {
+    setScreen(Screen::Menu);
+    redraw = true;
+  }
   announceKeyboardToPhone();
   sendDueEnter();
   switch (screen_) {

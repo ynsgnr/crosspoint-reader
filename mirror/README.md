@@ -100,8 +100,10 @@ outside the rows; `TemplateRenderer::onTap`, `Session::onTap`). Opening the conv
 
 ## View stack and Back
 `Session` keeps the templates the device showed (`canGoBack()` while more than one: a chat opened from the list is list, chat). A switch to a template already in
-the stack pops to it, like Android's back stack. With something to go back to, Back sends the `back` command (`Session::goBack`) and the band says `Back: previous`;
-the phone performs its own back action, the list comes to the front again and the device pops. With one view, Back opens the menu as before.
+the stack pops to it, like Android's back stack. On a template screen Back always sends the `back` command first (`Session::goBack`): the phone performs its own back
+action, the earlier screen comes to the front (the stack pops, or the same template shows what the app went back to). When the phone cannot go back any further (the
+app left to the launcher, or there was nothing to go back to) it sends `back_unavailable` (`Session::takeBackUnavailable`) and the device opens its menu, the launcher.
+A locked or silent phone cannot answer, so Back opens the menu at once. The band says `Back: previous` while a view lies below.
 
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template

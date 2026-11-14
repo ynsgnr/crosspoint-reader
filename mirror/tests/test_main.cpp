@@ -814,6 +814,24 @@ static void testBandHintFollowsTheStack() {
   CHECK(plain.toRgb({}) != back.toRgb({}));
 }
 
+// The phone's "back is exhausted" command: once, and the stack collapses to the view on screen.
+static void testBackUnavailableFromThePhone() {
+  Device d;
+  d.full(1, {});
+  d.send(gen::kFlagFull, 2, 0, listFull(makeList(2)), 2);
+  CHECK(d.session.canGoBack() && !d.session.takeBackUnavailable());
+  auto command = [&](uint8_t cmd) {
+    Writer w;
+    gen::ControlCommand{cmd, 0, 0}.encode(w);
+    d.send(gen::kFlagCommand, 3, 0, w.take(), static_cast<uint8_t>(gen::kControlTemplateId), 0);
+  };
+  command(gen::kCmdToggleDarkMode);  // another command: ignored
+  CHECK(!d.session.takeBackUnavailable());
+  command(gen::kCmdBackUnavailable);
+  CHECK(d.session.takeBackUnavailable() && !d.session.canGoBack() && !d.session.takeBackUnavailable());
+  CHECK(d.session.active()->templateId() == 2);  // the screen itself is unchanged
+}
+
 int main() {
   testCrcAndWire();
   testEnvelopeStream();
@@ -843,6 +861,7 @@ int main() {
   testSessionListTapAndSwitch();
   testViewStackAndBack();
   testBandHintFollowsTheStack();
+  testBackUnavailableFromThePhone();
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;

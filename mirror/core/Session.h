@@ -50,6 +50,10 @@ class Session {
   bool canGoBack() const { return stack_.size() > 1; }
   void goBack() { sendCommand(gen::kCmdBack); }
 
+  // True once after the phone said its back could not stay in the app (it left, or had nowhere to go): the device
+  // should show its launcher. The stack is cleared, so the view on screen is the only one left.
+  bool takeBackUnavailable();
+
   // One-shot flags; either one means the next frame should be a full refresh.
   bool takeTemplateSwitched() {
     bool s = switched_;
@@ -87,6 +91,7 @@ class Session {
   bool awaitingFull_ = false;  // resync requested: diffs are dropped until a full state arrives
   bool switched_ = false;
   bool resync_ = false;
+  bool backUnavailable_ = false;
 };
 
 }  // namespace mirror
