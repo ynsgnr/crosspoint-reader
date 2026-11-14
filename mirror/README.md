@@ -105,6 +105,10 @@ action, the earlier screen comes to the front (the stack pops, or the same templ
 app left to the launcher, or there was nothing to go back to) it sends `back_unavailable` (`Session::takeBackUnavailable`) and the device opens its menu, the launcher.
 A locked or silent phone cannot answer, so Back opens the menu at once. The band says `Back: previous` while a view lies below.
 
+## Locked phone
+While the phone says it is locked, a template screen is replaced by the PIN pad (it wakes the phone, like **Unlock phone**), so the last app is never shown over a lock screen. Back from the pad opens
+the status page (Unlock phone, Forget phone...); the pad does not reopen until the phone locks again or **Back to chat** is chosen while it is still locked. The pad closes by itself when the phone unlocks.
+
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template
 switch, resync, and every 20 partials (`RefreshOverrides` per template). Dirty rectangles are computed per paint item; typing
