@@ -1,0 +1,53 @@
+# Publishes the signed firmware channels that the device's Firmware channels screen offers (mirror/README.md):
+# "develop" (the develop-retink branch) and "pr-<number>" for every open pull request of this repository.
+#
+# It runs from the BASE branch (pull_request_target) and never runs pull request code: the ordinary "mirror" workflow
+# builds the firmware without secrets; this one waits for that build, signs the list and uploads. The signing key is a secret
+# of the environment "ota-signing", which the repository settings restrict to the develop-retink branch.
+name: ota-publish
+
+on:
+  pull_request_target:
+    branches: [develop-retink]
+    types: [opened, reopened, synchronize, closed]
+    # Keep these paths in step with mirror.yml: a pull request without a build would only make this run wait for nothing.
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+  push:
+    branches: [develop-retink]
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+
+concurrency:
+  group: ota-channels   # the list is read, changed and written back: one run at a time
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish:
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository   # never a fork
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ota-signing
+    permissions:
+      contents: write   # the release "ota"
+      actions: read     # the firmware artifact of the mirror workflow
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          TITLE: ${{ github.event.pull_request.title }}
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          if [ -z "$OTA_SIGNING_KEY" ]; then
+            echo "::notice::OTA_SIGNING_KEY is not set in the 'ota-signing' environment: nothing is published (mirror/README.md)"
+            exit 0
+          fi
+          mirror/scripts/ota/publish.sh

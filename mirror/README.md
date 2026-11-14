@@ -109,6 +109,42 @@ A locked or silent phone cannot answer, so Back opens the menu at once. The band
 While the phone says it is locked, a template screen is replaced by the PIN pad (it wakes the phone, like **Unlock phone**), so the last app is never shown over a lock screen. Back from the pad opens
 the status page (Unlock phone, Forget phone...); the pad does not reopen until the phone locks again or **Back to chat** is chosen while it is still locked. The pad closes by itself when the phone unlocks.
 
+## Firmware channels (OTA)
+**Home > More > Firmware channels** installs a build that CI published: `develop` (the develop-retink branch) or `pr-<number>` (an open pull request of this repository).
+Everything is checked before the running firmware is touched:
+
+1. Wi-Fi, then the list `channels-<board>.txt` and its signature `.sig` from the release `ota` of this repository.
+2. The signature (ECDSA P-256 / SHA-256, public key `ota/OtaKey.h`) is checked **before** the list is read (`ota/OtaManifest.cpp`). The list is one line per channel (`<id> <rev> <built> <size> <sha256> <title>`); the device builds the image address itself (`ota/OtaConfig.h`), the list never names a URL.
+3. You pick a channel and confirm (Cancel is the default). The battery must be at 25% or more.
+4. The image goes to the SD card; its SHA-256 and size must equal the signed list. The existing flasher (`FirmwareFlasher`) then validates the whole image (header, checksum, SHA-256 trailer, chip, board tag) before it erases anything, and only then switches the boot partition.
+
+**Automatic fallback** (`ota/BootGuard.h`, `device/OtaBoot.cpp`). Before it flashes, the installer records "this build is on trial, the old image is in slot X"; if that cannot be saved, nothing is flashed.
+Each boot of the build counts a try; one that has run for 10 seconds confirms itself. After 3 boots without confirming, the 4th boot switches back to the old image and restarts. The record names the build's revision, so it never acts on another image, and a record that cannot be read never causes a rollback.
+It runs inside the new build, so it is wired in without touching `src/main.cpp`: `device/OtaBootHooks.cpp` defines the Arduino core's `initVariant()` (before `setup()`), and the link flag `-Wl,--wrap=_Z4loopv` in `platformio_mirror.ini` ticks it before every `loop()` (a missing flag is a link error). CI builds both; neither has been run on a device yet.
+The fallback is custom because ESP-IDF's own rollback needs a different bootloader, which these devices do not get over OTA. What it does not cover:
+* **Short starts.** Every boot counts, wake from sleep included: three starts that each end within 10 seconds roll a good build back. After an install, let the device run 10 seconds before switching it off.
+* **Failures before `setup()`** (static initialisation, the bootloader), and **a build that runs 10 seconds and then misbehaves**: recover by hand (below).
+* **The first install**, and installs by the **other update paths** (SD card, stock OTA, web flasher): the guard protects an install only if the installing and the installed build both contain it. A record left from an earlier trial is ignored once a different build runs.
+* **No old image to go back to.** The trial just ends; only the log says so. The last failed boot's crash report is not saved (the earlier ones are, in `/crash_report.txt`).
+* **Flash writes are bounded:** NVS is written at most once to arm, 3 times during the trial and once to end it; a rollback whose switch keeps failing is tried 3 times. Nothing retries by itself: an install, the SD recovery and the stock update each write only after you confirm.
+
+**Recovery by hand.** Do this now, on a healthy device; it has not been tested on one yet.
+1. Get a known-good image: Actions > a green `mirror` run on `develop-retink` > Artifacts > `firmware-x4pro-mirror.bin` (needs a GitHub login; artifacts expire after 90 days, so keep a copy). Unzip it: it contains `firmware.bin`.
+2. Copy `firmware.bin` to the root of the SD card.
+3. With the device fully off, hold **Down** (X4 Pro) and press the power button. The recovery screen opens a file browser at the card root showing only `.bin` files; choose `firmware.bin` and confirm.
+This runs early in `setup()`, so it works unless the build fails before that point; then use the USB web flasher.
+
+**Publishing.** `.github/workflows/ota-publish.yml` runs `mirror/scripts/ota/publish.sh` for every push to develop-retink and every pull request into it. It runs from the base branch (`pull_request_target`) and never runs pull request code: the ordinary `mirror` workflow builds the firmware without secrets; the publisher waits for that build,
+adds the image and one line to the list, signs the list with `openssl` and uploads all three to the release `ota`. A channel disappears when its pull request is no longer an open one of this repository (checked on every run). A fork's pull request is never published. A failed GitHub call stops the script before anything changes. Images the list no longer names are deleted last.
+What this keeps simple, on purpose: every open pull request of this repository gets a channel (write access to the repository is the only gate, and you still pick and confirm on the device); the device does not refuse an older signed list (its images would no longer match the hashes anyway); the list and its signature are two uploads, so a device may once see a mismatch and just retries.
+If GitHub drops a waiting run (it keeps one per concurrency group), re-run the cancelled run in the Actions tab. The repository address is fixed in `ota/OtaConfig.h`; `mirror/scripts/ota/test.sh` fails when it, or the board name, stops agreeing with the script.
+The `mirror` workflow fails a build whose `MIRROR_GIT_REV` is not its commit (and so, publishes nothing), because the fallback only acts on an image that reports the revision the list names. `mirror/scripts/ota/test.sh` checks the list handling and the signing, and keeps `test/ota/channels-x4pro.txt` (which the host tests also read) equal to what the script writes.
+
+One-time setup (repository owner):
+1. Settings > Environments > New environment `ota-signing`, deployment branches: only `develop-retink`. A pull request's own workflow can then not read the key.
+2. Add its secret `OTA_SIGNING_KEY`: the private key that matches `ota/OtaKey.h`, e.g. `gh secret set OTA_SIGNING_KEY --env ota-signing < mirror/ota-signing.pem` (the file is git-ignored). The script refuses any other key. Keep a copy outside the repository: without it you need a new pair (`mirror/scripts/ota-keygen.sh`), a new `OtaKey.h` and a flash of every device by SD card or web flasher.
+3. Push to develop-retink once (a change under `mirror/` runs the build), so the `develop` channel exists. A pull request needs a green `mirror` build, so it must change files that workflow watches (`mirror/**`, `platformio.ini`, the Home files).
+
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template
 switch, resync, and every 20 partials (`RefreshOverrides` per template). Dirty rectangles are computed per paint item; typing

@@ -1,0 +1,3 @@
+# The OTA signing key (mirror/scripts/ota-keygen.sh writes it here by default): the private half never goes into git.
+ota-signing.pem
+*.ota-key.pem
