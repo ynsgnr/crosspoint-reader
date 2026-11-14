@@ -36,6 +36,7 @@ inline constexpr uint8_t kErrBadPayload = 5;
 inline constexpr uint8_t kCmdToggleDarkMode = 1;
 inline constexpr uint8_t kCmdUnlockRequest = 2;
 inline constexpr uint8_t kCmdHidStatus = 3;
+inline constexpr uint8_t kCmdBack = 6;
 inline constexpr uint8_t kCmdLaunchApp = 5;
 inline constexpr uint8_t kFeaturePhoneStatus = 1;
 inline constexpr uint8_t kFeatureHidKeyboard = 2;

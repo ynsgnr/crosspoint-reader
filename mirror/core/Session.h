@@ -43,6 +43,13 @@ class Session {
   // Asks the phone to do something (gen::kCmd*). Only valid while connected.
   void sendCommand(uint8_t command, uint8_t arg = 0, uint8_t arg2 = 0);
 
+  // The templates the device showed, oldest first (a chat opened from the list: list, chat). A template switch pushes;
+  // a switch back to one already in the stack pops to it, like Android's back stack. Back is only offered while there
+  // is something to go back to; the phone does the going back (gen::kCmdBack) and its screen decides what comes to the
+  // front.
+  bool canGoBack() const { return stack_.size() > 1; }
+  void goBack() { sendCommand(gen::kCmdBack); }
+
   // One-shot flags; either one means the next frame should be a full refresh.
   bool takeTemplateSwitched() {
     bool s = switched_;
@@ -68,7 +75,11 @@ class Session {
   SendFn send_;
   uint16_t maxPayload_;
   EnvelopeStreamParser parser_;
+  void pushView(uint8_t templateId);
+
+  static constexpr size_t kMaxViewStack = 4;
   std::unique_ptr<TemplateRenderer> active_;
+  std::vector<uint8_t> stack_;
   uint16_t lastApplied_ = 0;
   uint16_t outSeq_ = 1;
   uint32_t crcSeen_ = 0;

@@ -1,5 +1,7 @@
 #include "core/Session.h"
 
+#include <algorithm>
+
 namespace mirror {
 
 void Session::emit(uint8_t templateId, uint8_t schema, uint8_t flags, uint16_t base,
@@ -60,6 +62,7 @@ void Session::handle(const Envelope& e, bool& changed) {
     if (fresh) {
       active_ = std::move(fresh);
       switched_ = true;
+      pushView(e.templateId);
     }
   } else if (e.has(gen::kFlagDiff)) {
     if (awaitingFull_) return;  // the phone's full reply is on its way; one resync per gap is enough
@@ -73,6 +76,16 @@ void Session::handle(const Envelope& e, bool& changed) {
   lastApplied_ = e.seq;
   changed = true;
   if (e.has(gen::kFlagAckRequest)) emit(e.templateId, e.schemaVersion, gen::kFlagAck, e.seq);
+}
+
+void Session::pushView(uint8_t templateId) {
+  const auto at = std::find(stack_.begin(), stack_.end(), templateId);
+  if (at != stack_.end()) {
+    stack_.erase(at + 1, stack_.end());  // back to a view already shown: everything opened on top of it is gone
+    return;
+  }
+  if (stack_.size() >= kMaxViewStack) stack_.erase(stack_.begin());
+  stack_.push_back(templateId);
 }
 
 void Session::handleControl(const Envelope& e, bool& changed) {

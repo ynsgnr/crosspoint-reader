@@ -97,6 +97,11 @@ The device names a row by id only. Up/Down (and Left/Right, swipes, held buttons
 Confirm or a tap on a row sends `Activate(id)` and the phone touches that row on its own screen (a tap is offered to the template first, so it only toggles dark mode
 outside the rows; `TemplateRenderer::onTap`, `Session::onTap`). Opening the conversation brings the chat template to the front.
 
+## View stack and Back
+`Session` keeps the templates the device showed (`canGoBack()` while more than one: a chat opened from the list is list, chat). A switch to a template already in
+the stack pops to it, like Android's back stack. With something to go back to, Back sends the `back` command (`Session::goBack`) and the band says `Back: previous`;
+the phone performs its own back action, the list comes to the front again and the device pops. With one view, Back opens the menu as before.
+
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template
 switch, resync, and every 20 partials (`RefreshOverrides` per template). Dirty rectangles are computed per paint item; typing

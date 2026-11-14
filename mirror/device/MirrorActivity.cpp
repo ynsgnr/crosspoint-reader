@@ -68,13 +68,16 @@ void MirrorActivity::setScreen(Screen s) {
 bool MirrorActivity::showsChat() const { return screen_ == Screen::Status && session_ && session_->active(); }
 
 void MirrorActivity::loop() {
-  // Back goes up one level: unlock pad -> chat or status page, chat -> menu, menu or status page -> leave Mirror.
+  // Back goes up one level: unlock pad -> chat or status page, a template with a view below it (a chat opened from the
+  // list) -> the phone goes back, any other template -> menu, menu or status page -> leave Mirror.
   if (mappedInput.wasReleased(MappedInputManager::Button::Back)) {
     bool leave = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);  // released before finish(): onExit takes it too
       if (screen_ == Screen::Unlock)
         setScreen(Screen::Status);
+      else if (showsChat() && session_->canGoBack())
+        session_->goBack();  // the phone's screen answers; the device pops its stack when the earlier view comes back
       else if (showsChat())
         setScreen(Screen::Menu);
       else
@@ -348,7 +351,7 @@ mirror::RefreshKind MirrorActivity::drawFrame() {
   forceFull_ |= session_->takeTemplateSwitched();
   forceFull_ |= session_->takeResyncHappened();
   const bool dark = mirror::bandDarkMode(session_->phoneStatus());
-  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, dark);
+  const mirror::DirtyRects dirty = mirror::renderFrame(*t, gfx_, dark, session_->canGoBack());
   const mirror::RefreshPlan plan = policy_.plan(dirty, gfx_.width(), gfx_.height() - mirror::statusBandHeight(gfx_),
                                                 t->refreshOverrides(), forceFull_);
   forceFull_ = false;

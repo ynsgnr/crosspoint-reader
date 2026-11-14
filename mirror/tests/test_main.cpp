@@ -753,6 +753,44 @@ static void testSessionListTapAndSwitch() {
   CHECK(static_cast<list::ListRenderer*>(d.session.active())->state().selected == 1);
 }
 
+// The view stack: the list opens a chat (push), Back asks the phone, the list coming back pops.
+static void testViewStackAndBack() {
+  Device d;
+  d.full(1, {});
+  CHECK(!d.session.canGoBack());  // one view: Back opens the menu
+  d.send(gen::kFlagFull, 2, 0, listFull(makeList(2)), 2);
+  CHECK(d.session.canGoBack());
+  d.out.clear();
+  d.session.goBack();
+  CHECK(d.out.size() == 1 && d.out[0].has(gen::kFlagCommand) && d.out[0].templateId == gen::kControlTemplateId);
+  Reader r(d.out[0].payload.data(), d.out[0].payload.size());
+  gen::ControlCommand c;
+  CHECK(gen::ControlCommand::decode(r, c) && c.command == gen::kCmdBack);
+  CHECK(d.session.canGoBack());                   // nothing popped yet: the phone has not answered
+  d.send(gen::kFlagFull, 3, 0, chatFull({}), 1);  // the phone went back and shows the earlier view
+  CHECK(d.session.active()->templateId() == 1 && !d.session.canGoBack());
+  d.send(gen::kFlagFull, 4, 0, listFull(makeList(2)), 2);
+  d.send(
+      gen::kFlagDiff, 5, 4,
+      [] {
+        Writer w;
+        w.writeUvarint(0);
+        return w.take();
+      }(),
+      2);  // same template: no push
+  CHECK(d.session.canGoBack());
+  d.send(gen::kFlagFull, 6, 0, chatFull({}), 1);
+  CHECK(!d.session.canGoBack());
+}
+
+static void testBandHintFollowsTheStack() {
+  sim::SimGfx plain(480, 800), back(480, 800);
+  chat::ChatRenderer a, b;
+  renderFrame(a, plain, false, false);
+  renderFrame(b, back, false, true);
+  CHECK(plain.toRgb({}) != back.toRgb({}));
+}
+
 int main() {
   testCrcAndWire();
   testEnvelopeStream();
@@ -779,6 +817,8 @@ int main() {
   testListFitAndScroll();
   testListDeviceEvents();
   testSessionListTapAndSwitch();
+  testViewStackAndBack();
+  testBandHintFollowsTheStack();
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
