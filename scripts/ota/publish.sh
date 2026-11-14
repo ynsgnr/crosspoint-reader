@@ -20,6 +20,7 @@ BOARD=x4pro
 ASSET_SUFFIX=firmware-x4pro-mirror.bin   # artifact of the "mirror" workflow's x4pro-macro build
 INTEGRATION_BRANCH=develop-retink
 changed=0
+WAIT_TRIES=60   # polls of 30 s for the build of a commit that was just pushed; reconcile looks once (see below)
 
 log() { echo "ota: $*"; }
 
@@ -88,13 +89,13 @@ publish_channel() {
   [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { log "bad commit"; exit 1; }
   # Wait for the build of exactly this commit; publish only a green one.
   run=""
-  for _ in $(seq 1 60); do
+  for i in $(seq 1 "$WAIT_TRIES"); do
     run="$(gh run list -R "$REPO" --workflow mirror.yml --commit "$sha" --json databaseId,status,conclusion --limit 10 \
       --jq 'map(select(.status=="completed")) | first | if . == null then "" else "\(.databaseId) \(.conclusion)" end')"
     [ -n "$run" ] && break
-    sleep 30
+    [ "$i" -lt "$WAIT_TRIES" ] && sleep 30
   done
-  if [ -z "$run" ]; then log "no finished build for $sha within 30 minutes (does the pull request change files the mirror workflow watches?): $channel not published"; return 0; fi
+  if [ -z "$run" ]; then log "no finished build for $sha (does it change files the mirror workflow watches?): $channel not published"; return 0; fi
   if [ "${run#* }" != "success" ]; then log "the build for $sha ended '${run#* }': $channel not published"; return 0; fi
   mkdir -p "$WORK/dl"
   gh run download "${run% *}" -R "$REPO" -n "$ASSET_SUFFIX" -D "$WORK/dl"
@@ -112,6 +113,9 @@ case "$KIND" in
   develop | pr) publish_channel "$CHANNEL" "$SHA" "$TITLE" ;;
   sweep) ;;
   reconcile)
+    # The heads looked at here were pushed long ago: their build finished already, or never ran. One look, no waiting,
+    # so a head without a build cannot use up the job's time.
+    WAIT_TRIES=1
     head="$(gh api "repos/$REPO/commits/$INTEGRATION_BRANCH" --jq '.sha + " " + (.commit.message | split("\n")[0])')"
     if [ "$(manifest rev develop)" != "${head:0:8}" ]; then publish_channel develop "${head%% *}" "$INTEGRATION_BRANCH: ${head#* }"; fi
     prs="$(gh pr list -R "$REPO" --base "$INTEGRATION_BRANCH" --label ota --state open \
