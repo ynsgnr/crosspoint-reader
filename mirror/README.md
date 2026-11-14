@@ -109,6 +109,29 @@ A locked or silent phone cannot answer, so Back opens the menu at once. The band
 While the phone says it is locked, a template screen is replaced by the PIN pad (it wakes the phone, like **Unlock phone**), so the last app is never shown over a lock screen. Back from the pad opens
 the status page (Unlock phone, Forget phone...); the pad does not reopen until the phone locks again or **Back to chat** is chosen while it is still locked. The pad closes by itself when the phone unlocks.
 
+## Firmware channels (OTA)
+**Home > More > Firmware channels** installs a build CI published: `develop` (the develop-retink branch) or `pr-<number>` (an open pull request of this repository that carries the label `ota`).
+The device trusts only what the fork's OTA key signed, and every step before the flash can fail without touching the running firmware:
+
+1. Wi-Fi, then `channels.json` and `channels.json.sig` from the release `ota` of this repository (`ota/OtaConfig.h`).
+2. The signature (ECDSA P-256 / SHA-256, `kOtaPublicKeyDer` in `ota/OtaKey.h`) is checked **before** the file is parsed. Then the device's own policy (`ota/OtaManifest.cpp`): only this board, only file names under the release's URL, a plausible size,
+   lower-case SHA-256, at most 8 channels, and a manifest older than one already accepted is a replay and is refused.
+3. You choose a channel and confirm (Cancel is the default). The battery must be at 25% or more.
+4. The image goes to the SD card, its SHA-256 and size must equal the signed manifest's, then `FirmwareFlasher` validates it (header, checksum, SHA-256 trailer, chip, board tag) before it erases anything, and only then switches the boot partition.
+
+What this does not give you: a rollback. The stock X3/X4 bootloader has no app-rollback support, so a signed build that boots but misbehaves stays until you install another one (a channel again, the SD-card update, or the web flasher).
+The flash itself is the stock one (`esp_partition` writes into the inactive slot, then `ota_boot::switchTo`), so a failure before the switch leaves the running slot untouched.
+
+**Publishing** (`.github/workflows/ota-publish.yml`, `scripts/ota/`). It runs from the base branch (`pull_request_target`) and never runs pull request code: the PR's firmware is built by the ordinary `mirror` workflow; the publisher waits for that run, hashes the image,
+rewrites `channels.json` (`scripts/ota/channels.py`), signs it with `openssl` and uploads image, manifest and signature to the release `ota`. A channel disappears when its PR is closed or loses the label (every run sweeps stale ones).
+Pull requests from forks are never published. `scripts/ota/test_channels.py` checks the tool, the manifest fixture that the host tests also read (`mirror/test/ota/`), and the openssl signature round trip.
+
+One-time setup (repository owner):
+1. Settings > Environments > New environment `ota-signing`; Deployment branches: *Selected branches* > `develop-retink`. A pull request branch can then not read the key.
+2. Add the environment secret `OTA_SIGNING_KEY`: the PEM private key that belongs to the public key in `ota/OtaKey.h`, e.g. `gh secret set OTA_SIGNING_KEY --env ota-signing < ota-signing.pem`. The publisher refuses to sign with any other key.
+3. Keep a backup of the private key outside the repository. Losing it means a new pair (`mirror/scripts/ota-keygen.sh`) and a firmware update, by SD card or web flasher, before channels work again.
+4. Put the label `ota` on a pull request to get a `pr-<number>` channel.
+
 ## Refresh policy
 `FAST_REFRESH` (differential, changed pixels only) for partial updates; `HALF_REFRESH` for the first frame, template
 switch, resync, and every 20 partials (`RefreshOverrides` per template). Dirty rectangles are computed per paint item; typing

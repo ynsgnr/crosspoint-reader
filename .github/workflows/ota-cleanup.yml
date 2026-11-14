@@ -1,0 +1,51 @@
+# Takes a pull request's build off the OTA channel list when the pull request is closed or merged.
+name: ota-cleanup
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions: {}
+
+jobs:
+  remove:
+    name: Remove the OTA channel
+    if: ${{ github.repository == 'ynsgnr/crosspoint-reader' && github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: ota-channels
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+      CHANNEL: pr-${{ github.event.pull_request.number }}
+    steps:
+      - name: Signing key present?
+        id: key
+        run: |
+          if [ -n "$OTA_SIGNING_KEY" ]; then echo "have=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::OTA_SIGNING_KEY is not set: nothing to remove"; fi
+
+      - uses: actions/checkout@v6
+        if: steps.key.outputs.have == 'true'
+
+      - name: Remove
+        if: steps.key.outputs.have == 'true'
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          work="$RUNNER_TEMP/ota"
+          mkdir -p "$work"
+          gh release view ota --repo "$repo" --json assets -q '.assets[].name' 2>/dev/null | grep -qx channels.json || { echo "No channel list yet"; exit 0; }
+          gh release download ota --repo "$repo" -p channels.json -D "$work" --clobber
+          old="$(python3 scripts/ota/manifest.py assets --manifest "$work/channels.json" --id "$CHANNEL")"
+          [ -n "$old" ] || { echo "$CHANNEL is not listed"; exit 0; }
+          (umask 077; printf '%s\n' "$OTA_SIGNING_KEY" > "$work/key.pem")
+          python3 scripts/ota/manifest.py check-key --key "$work/key.pem" --header mirror/ota/OtaKey.h
+          python3 scripts/ota/manifest.py remove --manifest "$work/channels.json" --id "$CHANNEL"
+          openssl dgst -sha256 -sign "$work/key.pem" -out "$work/channels.json.sig" "$work/channels.json"
+          gh release upload ota "$work/channels.json" "$work/channels.json.sig" --repo "$repo" --clobber
+          for a in $old; do gh release delete-asset ota "$a" --repo "$repo" --yes || true; done
+          rm -f "$work/key.pem"

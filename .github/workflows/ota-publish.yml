@@ -1,0 +1,83 @@
+# Publishes the signed firmware channels the device's "Firmware channels" screen offers (mirror/README.md).
+#
+# Channels: "develop" (the develop-retink branch) and "pr-<number>" for open pull requests of THIS repository that carry
+# the label "ota". Fork pull requests are never published.
+#
+# Safety: this workflow runs from the BASE branch (pull_request_target) and never checks out or runs pull request code.
+# The pull request's firmware is built by the unprivileged "mirror" workflow; this one waits for it, hashes the image,
+# signs the manifest and uploads. The signing key is an environment secret (environment "ota-signing", restricted to the
+# develop-retink branch in the repository settings), so a pull request branch can not read it. Devices accept only
+# what that key signed.
+name: ota-publish
+
+on:
+  pull_request_target:
+    branches: [develop-retink]
+    types: [opened, reopened, synchronize, labeled, unlabeled, closed]
+  push:
+    branches: [develop-retink]
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+  workflow_dispatch:   # re-runs the sweep (and republishes nothing): repairs a missed event
+
+# One publisher at a time: channels.json is read, changed and written back.
+concurrency:
+  group: ota-channels
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish:
+    # Never for a fork's pull request: it would not even get the environment.
+    if: github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: ota-signing
+    permissions:
+      contents: write        # the release "ota"
+      actions: read          # download the mirror workflow's artifact
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Decide what to publish
+        id: what
+        env:
+          EVENT: ${{ github.event_name }}
+          ACTION: ${{ github.event.action }}
+          PR: ${{ github.event.pull_request.number }}
+          PR_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          kind=sweep; channel=""; sha=""; title=""
+          if [ "$EVENT" = push ]; then
+            kind=develop; channel=develop; sha="$GITHUB_SHA"
+            title="develop-retink: $(git log -1 --format=%s)"
+          elif [ "$EVENT" = pull_request_target ] && [ "$ACTION" != closed ] \
+               && printf '%s' "$LABELS" | python3 -c 'import json,sys; sys.exit(0 if "ota" in json.load(sys.stdin) else 1)'; then
+            kind=pr; channel="pr-$PR"; sha="$PR_SHA"; title="$PR_TITLE"
+          fi
+          {
+            echo "kind=$kind"; echo "channel=$channel"; echo "sha=$sha"
+            echo "title<<EOF_TITLE"; printf '%s\n' "$title"; echo "EOF_TITLE"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          KIND: ${{ steps.what.outputs.kind }}
+          CHANNEL: ${{ steps.what.outputs.channel }}
+          SHA: ${{ steps.what.outputs.sha }}
+          TITLE: ${{ steps.what.outputs.title }}
+          OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+        run: |
+          if [ -z "$OTA_SIGNING_KEY" ]; then
+            echo "::notice::OTA_SIGNING_KEY is not set in the 'ota-signing' environment: nothing is published (see mirror/README.md, Firmware channels)"
+            exit 0
+          fi
+          scripts/ota/publish.sh

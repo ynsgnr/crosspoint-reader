@@ -1,14 +1,15 @@
 # Mirror feature checks (new file; see mirror/MIRROR_CHANGES.md). Independent of the upstream workflows.
 name: mirror
 
-# A branch with an open pull request builds once, on the pull request: push only builds develop.
+# A branch with an open pull request builds once, on the pull request: push only builds develop and develop-retink
+# (develop-retink is the "develop" firmware channel, see .github/workflows/ota-publish.yml).
 # The X4 (ESP32-C3) image is only built on demand (Actions > mirror > Run workflow).
 on:
   push:
-    branches: [develop]
-    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+    branches: [develop, develop-retink]
+    paths: ['mirror/**', 'scripts/ota/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
   pull_request:
-    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml', 'scripts/ota/**']
   workflow_dispatch:
 
 # A newer push to the same branch replaces the run that is still going.
@@ -30,12 +31,24 @@ jobs:
           cmake -S mirror -B build-mirror -DCMAKE_BUILD_TYPE=Debug
           cmake --build build-mirror -j"$(nproc)"
           ctest --test-dir build-mirror --output-on-failure
+      - name: OTA manifest script
+        run: python3 scripts/ota/test_manifest.py
       - name: Simulator renders a transcript
         run: build-mirror/mirror_sim mirror/test/golden/chat/typing.txt sim-out && test -s sim-out/frame_000.png
       - uses: actions/upload-artifact@v6
         with:
           name: mirror-simulator-frames
           path: sim-out
+
+  ota-scripts:
+    name: OTA scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Channel manifest tool, fixture and signature round trip
+        run: python3 scripts/ota/test_channels.py
+      - name: Shell syntax of the publisher
+        run: bash -n scripts/ota/publish.sh
 
   generated-files:
     name: Generated files untouched
@@ -123,3 +136,76 @@ jobs:
           name: ${{ matrix.asset }}
           path: .pio/build/${{ matrix.env }}/firmware.bin
           if-no-files-found: error
+
+  # The OTA channel of this build: the develop branch, or the pull request. Same-repository branches only (a fork's pull
+  # request never reaches the device's channel list), and only when the signing key secret exists. The image is signed
+  # into channels.json (ECDSA P-256); the device checks that signature before it reads anything.
+  publish:
+    name: Publish OTA channel
+    needs: firmware
+    if: ${{ github.repository == 'ynsgnr/crosspoint-reader' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: ota-channels
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OTA_SIGNING_KEY: ${{ secrets.OTA_SIGNING_KEY }}
+      CHANNEL: ${{ github.event_name == 'push' && 'develop' || format('pr-{0}', github.event.pull_request.number) }}
+      TITLE: ${{ github.event_name == 'push' && 'develop branch' || github.event.pull_request.title }}
+      SHA: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.head.sha }}
+    steps:
+      - name: Signing key present?
+        id: key
+        run: |
+          if [ -n "$OTA_SIGNING_KEY" ]; then echo "have=true" >> "$GITHUB_OUTPUT"
+          else echo "::notice::OTA_SIGNING_KEY is not set: no OTA channel is published"; fi
+
+      - uses: actions/checkout@v6
+        if: steps.key.outputs.have == 'true'
+
+      - uses: actions/download-artifact@v6
+        if: steps.key.outputs.have == 'true'
+        with:
+          name: firmware-x4pro-mirror.bin
+          path: image
+
+      - name: Publish
+        if: steps.key.outputs.have == 'true'
+        run: |
+          set -euo pipefail
+          repo="$GITHUB_REPOSITORY"
+          rev="${SHA:0:8}"
+          base="https://github.com/$repo/releases/download/ota/"
+          work="$RUNNER_TEMP/ota"
+          mkdir -p "$work"
+          (umask 077; printf '%s\n' "$OTA_SIGNING_KEY" > "$work/key.pem")
+          # Publishing with a key the firmware does not trust would only make every device refuse the list.
+          python3 scripts/ota/manifest.py check-key --key "$work/key.pem" --header mirror/ota/OtaKey.h
+
+          gh release view ota --repo "$repo" >/dev/null 2>&1 ||
+            gh release create ota --repo "$repo" --prerelease --title "OTA channels" \
+              --notes "Firmware channels for the Mirror updater (Home > More > Firmware channels). Written by CI; do not edit."
+          # An existing list must download: a failure here must stop the job, never start from an empty list.
+          if gh release view ota --repo "$repo" --json assets -q '.assets[].name' | grep -qx channels.json; then
+            gh release download ota --repo "$repo" -p channels.json -D "$work" --clobber
+          fi
+          old="$(python3 scripts/ota/manifest.py assets --manifest "$work/channels.json" --id "$CHANNEL")"
+
+          asset="$CHANNEL-$rev.bin"
+          cp image/firmware.bin "$work/$asset"
+          # The image first, then the list that points at it: the list never names an image that is not there yet.
+          gh release upload ota "$work/$asset" --repo "$repo" --clobber
+          python3 scripts/ota/manifest.py add --manifest "$work/channels.json" --id "$CHANNEL" --title "$TITLE" \
+            --rev "$rev" --asset "$asset" --base "$base" --image "$work/$asset"
+          openssl dgst -sha256 -sign "$work/key.pem" -out "$work/channels.json.sig" "$work/channels.json"
+          openssl ec -in "$work/key.pem" -pubout -out "$work/pub.pem" 2>/dev/null
+          openssl dgst -sha256 -verify "$work/pub.pem" -signature "$work/channels.json.sig" "$work/channels.json"
+          gh release upload ota "$work/channels.json" "$work/channels.json.sig" --repo "$repo" --clobber
+          for a in $old; do
+            [ "$a" = "$asset" ] || gh release delete-asset ota "$a" --repo "$repo" --yes || true
+          done
+          rm -f "$work/key.pem"
+          echo "Published $CHANNEL ($rev) to the OTA channel list" >> "$GITHUB_STEP_SUMMARY"
