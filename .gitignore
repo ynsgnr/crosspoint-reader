@@ -36,7 +36,3 @@ flake.*
 build-mirror/
 sim-out/
 mirror/device/BuildInfo.h
-
-# OTA signing key: the private half never goes into git (see mirror/README.md, Firmware channels)
-ota-signing.pem
-*.ota-key.pem

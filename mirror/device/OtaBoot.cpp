@@ -1,7 +1,7 @@
 #if defined(CROSSPOINT_MIRROR)
 #include "device/OtaBoot.h"
 
-#include <Logging.h>
+#include <esp_log.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
 #include <esp_system.h>
@@ -90,14 +90,14 @@ void bootGuardAtStart() {
     // Another build than the one on trial is running (an SD or stock update since, or an older firmware), or the image
     // does not carry the revision the manifest named: the guard cannot protect it. A build on trial that gets here
     // means CI and the image disagree about the revision.
-    LOG_ERR("OTA", "stale fallback record: running %s", MIRROR_GIT_REV);
+    ESP_LOGE("ota", "stale fallback record: running %s", MIRROR_GIT_REV);
     save(g);
     return;
   }
   if (action == BootAction::Proceed) {
     save(g);
-    LOG_INF("OTA", "build on trial: boot %u of %u", static_cast<unsigned>(g.tries),
-            static_cast<unsigned>(kMaxBootTries));
+    ESP_LOGI("ota", "build on trial: boot %u of %u", static_cast<unsigned>(g.tries),
+             static_cast<unsigned>(kMaxBootTries));
     return;
   }
 
@@ -106,8 +106,8 @@ void bootGuardAtStart() {
   const esp_partition_t* prev =
       esp_partition_find_first(ESP_PARTITION_TYPE_APP, static_cast<esp_partition_subtype_t>(g.prevSlot), nullptr);
   const bool canGoBack = prev && running && prev->address != running->address && plausibleImage(prev);
-  LOG_ERR("OTA", "build %s did not confirm in %u boots: %s", MIRROR_GIT_REV, static_cast<unsigned>(kMaxBootTries),
-          canGoBack ? "rolling back" : "no usable previous image");
+  ESP_LOGE("ota", "build %s did not confirm in %u boots: %s", MIRROR_GIT_REV, static_cast<unsigned>(kMaxBootTries),
+           canGoBack ? "rolling back" : "no usable previous image");
   if (!canGoBack) {
     giveUpGuard(g);
     save(g);
@@ -135,7 +135,7 @@ void bootGuardTick(uint32_t uptimeMs) {
   settled = true;
   if (result != Load::Record || !guardConfirmDue(g, uptimeMs)) return;
   confirmGuard(g);
-  if (save(g)) LOG_INF("OTA", "build %s confirmed", MIRROR_GIT_REV);
+  if (save(g)) ESP_LOGI("ota", "build %s confirmed", MIRROR_GIT_REV);
 }
 
 bool rolledBackNotice() {

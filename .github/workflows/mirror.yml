@@ -7,9 +7,9 @@ name: mirror
 on:
   push:
     branches: [develop, develop-retink]
-    paths: ['mirror/**', 'scripts/ota/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
   pull_request:
-    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml', 'scripts/ota/**']
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
   workflow_dispatch:
 
 # A newer push to the same branch replaces the run that is still going.
@@ -44,9 +44,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Channel manifest tool, fixture and signature round trip
-        run: python3 scripts/ota/test_channels.py
+        run: python3 mirror/scripts/ota/test_channels.py
       - name: Shell syntax of the publisher
-        run: bash -n scripts/ota/publish.sh
+        run: bash -n mirror/scripts/ota/publish.sh
 
   generated-files:
     name: Generated files untouched

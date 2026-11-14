@@ -120,8 +120,9 @@ The device trusts only what the fork's OTA key signed, and every step before the
 4. The image goes to the SD card, its SHA-256 and size must equal the signed manifest's, then `FirmwareFlasher` validates it (header, checksum, SHA-256 trailer, chip, board tag) before it erases anything, and only then switches the boot partition.
 
 **Automatic fallback.** Before it flashes, the installer records that the new build is *on trial* and which slot holds the running image (`ota/BootGuard.h`, NVS key `ota_guard`); if that cannot be saved, nothing is flashed.
-Every boot of that build counts a try (near the top of `setup()`, `device/OtaBoot.cpp`); a build whose main loop has run for 10 seconds confirms itself. A build that has not confirmed after 3 boots is replaced by the old image on the 4th: the boot partition is switched back and the device restarts.
+Every boot of that build counts a try (before `setup()` runs, `device/OtaBoot.cpp`); a build whose main loop has run for 10 seconds confirms itself. A build that has not confirmed after 3 boots is replaced by the old image on the 4th: the boot partition is switched back and the device restarts.
 The Firmware channels screen says when the last build was rolled back.
+How it is wired in without editing upstream files (`src/main.cpp` is untouched): `device/OtaBootHooks.cpp` defines the Arduino core's weak `initVariant()` hook, which runs after NVS is initialised and before `setup()`, and the link flag `-Wl,--wrap=_Z4loopv` in `platformio_mirror.ini` routes the core's call of `loop()` through a tick that runs before every pass. A missing flag is a link error, not a silent loss.
 Safety of the guard itself: the record names the revision of the build on trial, so it never acts on another image; a damaged or unreadable record never causes a rollback; and a rollback only happens if the old slot still holds an image for this chip. The guard depends on the revision the image reports (`MIRROR_GIT_REV`) being exactly the first 8 characters of its commit, which is what the manifest names:
 the `mirror` workflow fails the build if they differ, and the publisher checks the file again.
 
@@ -140,20 +141,20 @@ It is custom, in the app, because ESP-IDF's own rollback (`CONFIG_BOOTLOADER_APP
 3. With the device fully off, hold **Down** (X4 Pro) and press the power button. The recovery screen opens a file browser at the card root, showing only `.bin` files (open folders to find yours); choose `firmware.bin` and confirm.
 This runs early in `setup()`, so it works unless the build fails before that point. Then use the USB web flasher.
 
-**Publishing** (`.github/workflows/ota-publish.yml`, `scripts/ota/`). It runs from the base branch (`pull_request_target`) and never runs pull request code: the PR's firmware is built by the ordinary `mirror` workflow; the publisher waits for that run, hashes the image,
-rewrites `channels.json` (`scripts/ota/channels.py`), signs it with `openssl` and uploads image, manifest and signature to the release `ota`. A channel disappears when its PR is closed or loses the label (every run sweeps stale ones).
-Pull requests from forks are never published. `scripts/ota/test_channels.py` checks the tool, the manifest fixture that the host tests also read (`mirror/test/ota/`), and the openssl signature round trip.
-The manifest rules exist twice, in `mirror/ota/OtaManifest.cpp` (what the device accepts) and `scripts/ota/channels.py` (what CI writes); a change to either needs the other and the fixture (`python3 scripts/ota/test_channels.py --write-fixture`).
+**Publishing** (`.github/workflows/ota-publish.yml`, `mirror/scripts/ota/`). It runs from the base branch (`pull_request_target`) and never runs pull request code: the PR's firmware is built by the ordinary `mirror` workflow; the publisher waits for that run, hashes the image,
+rewrites `channels.json` (`mirror/scripts/ota/channels.py`), signs it with `openssl` and uploads image, manifest and signature to the release `ota`. A channel disappears when its PR is closed or loses the label (every run sweeps stale ones).
+Pull requests from forks are never published. `mirror/scripts/ota/test_channels.py` checks the tool, the manifest fixture that the host tests also read (`mirror/test/ota/`), and the openssl signature round trip.
+The manifest rules exist twice, in `mirror/ota/OtaManifest.cpp` (what the device accepts) and `mirror/scripts/ota/channels.py` (what CI writes); a change to either needs the other and the fixture (`python3 mirror/scripts/ota/test_channels.py --write-fixture`).
 A failed GitHub call stops the publisher before it changes anything, so a transient error can never shorten the manifest. GitHub keeps only one waiting run per concurrency group, so a publish can be dropped; the manual run of the workflow (*Run workflow*) is a reconcile that adds whatever is missing or out of date.
 
 One-time setup (repository owner):
 1. Settings > Environments > New environment `ota-signing`; Deployment branches: *Selected branches* > `develop-retink`. A pull request branch can then not read the key.
 2. Add the environment secret `OTA_SIGNING_KEY`: the PEM private key that belongs to the public key in `ota/OtaKey.h`, e.g. `gh secret set OTA_SIGNING_KEY --env ota-signing < ota-signing.pem`. The publisher refuses to sign with any other key.
-3. Keep a backup of the private key outside the repository (`ota-signing.pem` is git-ignored; never commit it). Losing it means a new pair and a firmware update by SD card or web flasher before channels work again.
+3. Keep a backup of the private key outside the repository (`mirror/ota-signing.pem` is git-ignored; never commit it). Losing it means a new pair and a firmware update by SD card or web flasher before channels work again.
 4. Create the label `ota` once (Issues > Labels). A pull request that carries it gets a `pr-<number>` channel.
 5. Seed the `develop` channel: the next push to `develop-retink` that touches files the `mirror` workflow watches publishes it (or run the workflow by hand once it exists on the default branch). Until then the screen says "No channel list is published yet".
 
-A pull request channel needs a green `mirror` build of the PR head, so the PR must change files that workflow watches (`mirror/**`, `scripts/ota/**`, `platformio.ini`, the Home files); the publisher waits up to 30 minutes for that build. A first-time contributor's workflow runs may need approval.
+A pull request channel needs a green `mirror` build of the PR head, so the PR must change files that workflow watches (`mirror/**`, `platformio.ini`, the Home files); the publisher waits up to 30 minutes for that build. A first-time contributor's workflow runs may need approval.
 To rotate the key: `mirror/scripts/ota-keygen.sh`, replace `kOtaPublicKeyDer` in `ota/OtaKey.h`, update the secret, and put the new firmware on every device by SD card or web flasher: devices still holding the old key accept nothing signed by the new one.
 
 ## Refresh policy

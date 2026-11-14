@@ -12,10 +12,12 @@ bool armBootGuard(const std::string& rev);
 // The flash failed after arming: nothing is on trial.
 void disarmBootGuard();
 
-// First thing in setup(). Counts a try of a build on trial; when it has used them all, switches the boot partition back
-// to the old image and restarts. Changes nothing when no trial is recorded or anything is unreadable.
+// Called by initVariant() (device/OtaBootHooks.cpp), before setup(). Counts a try of a build on trial; when it has used
+// them all, switches the boot partition back to the old image and restarts. Changes nothing when no trial is recorded
+// or anything is unreadable.
 void bootGuardAtStart();
-// Every pass of loop(): confirms the build on trial once it has run for kConfirmAfterMs.
+// Called before every loop() (device/OtaBootHooks.cpp): confirms the build on trial once it has run for
+// kConfirmAfterMs.
 void bootGuardTick(uint32_t uptimeMs);
 
 // The last trial ended in a rollback (until the next install).

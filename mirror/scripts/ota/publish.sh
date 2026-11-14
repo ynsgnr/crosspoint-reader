@@ -11,7 +11,7 @@
 # Any failed GitHub call stops the run before anything is changed: a transient error must never shorten the manifest.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../.." && pwd)"
+ROOT="$(cd "$HERE/../../.." && pwd)"   # the repository root
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 MANIFEST="$WORK/channels.json"

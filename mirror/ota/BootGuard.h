@@ -1,9 +1,9 @@
 #pragma once
 // Automatic fallback for an installed channel build. The installer records "build <rev> is on trial, the old image is
-// in slot <prev>" before it flashes. Every boot of that build counts a try (first thing in setup()); a build that
-// reaches its main loop and stays up for kConfirmAfterMs is confirmed. A build that does not confirm within
-// kMaxBootTries boots is replaced by the old image on the next boot. It cannot help a build that fails before setup()
-// runs, or the bootloader.
+// in slot <prev>" before it flashes. Every boot of that build counts a try (before setup(), see
+// device/OtaBootHooks.cpp); a build that reaches its main loop and stays up for kConfirmAfterMs is confirmed. A build
+// that does not confirm within kMaxBootTries boots is replaced by the old image on the next boot. It cannot help a
+// build that fails before setup() runs, or the bootloader.
 #include <cstddef>
 #include <cstdint>
 #include <string>

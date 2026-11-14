@@ -37,7 +37,7 @@ def _git_rev():
             pass
     try:
         # The first 8 characters of the full hash, not --short=8 (which grows when the abbreviation is ambiguous): the OTA
-        # channel manifest names the build by exactly these 8 characters (scripts/ota/publish.sh).
+        # channel manifest names the build by exactly these 8 characters (mirror/scripts/ota/publish.sh).
         rev = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()[:8]
         # CI checks out a clean tree; files its earlier steps left behind must not make the build look modified.
         untracked = "no" if os.environ.get("GITHUB_ACTIONS") == "true" else "normal"

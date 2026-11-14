@@ -58,9 +58,6 @@
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
 #include "util/Timezones.h"
-#if defined(CROSSPOINT_MIRROR)
-#include "device/OtaBoot.h"  // automatic fallback of a freshly installed OTA channel build (mirror/ota/BootGuard.h)
-#endif
 
 #if CROSSPOINT_VECTOR_FONTS
 // Rendering (incl. FreeType TTF rasterization) runs on the Arduino loop task.
@@ -684,9 +681,6 @@ void setup() {
 #endif
 #endif
 
-#if defined(CROSSPOINT_MIRROR)
-  mirror::ota::bootGuardAtStart();  // first: a build on trial that keeps failing is replaced by the old image
-#endif
   HalSystem::begin();
   // checkPanic() clears the watchdog capture marker after a successful SD
   // dump, so retain the boot classification for the later activity route.
@@ -969,9 +963,6 @@ void setup() {
 void loop() {
   static unsigned long maxLoopDuration = 0;
   const unsigned long loopStartTime = millis();
-#if defined(CROSSPOINT_MIRROR)
-  mirror::ota::bootGuardTick(static_cast<uint32_t>(loopStartTime));
-#endif
   static unsigned long lastMemPrint = 0;
 
   gpio.setSharedConfirmPowerShortPressEmitsPower(SETTINGS.shortPwrBtn == CrossPointSettings::SHORT_PWRBTN::SLEEP);

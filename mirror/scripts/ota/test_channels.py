@@ -7,7 +7,7 @@ import unittest
 import channels
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FIXTURE = os.path.join(HERE, "..", "..", "mirror", "test", "ota", "channels_example.json")
+FIXTURE = os.path.join(HERE, "..", "..", "test", "ota", "channels_example.json")
 
 
 def image(d, name, size=600_000, fill=b"\x5a"):
@@ -39,7 +39,7 @@ class ChannelsTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             text = open(build_example(d), encoding="ascii").read()
         with open(FIXTURE, encoding="ascii") as f:
-            self.assertEqual(f.read(), text, "regenerate with: python3 scripts/ota/test_channels.py --write-fixture")
+            self.assertEqual(f.read(), text, "regenerate with: python3 mirror/scripts/ota/test_channels.py --write-fixture")
 
     def test_output_is_compact_ascii_and_ordered(self):
         with tempfile.TemporaryDirectory() as d:

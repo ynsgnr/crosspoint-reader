@@ -182,7 +182,7 @@ void testRunningBuild() {
   OCHECK(std::string(trustName(Trust::Stale)) == "STALE" && std::string(trustName(Trust::Ok)) == "OK");
 }
 
-// What scripts/ota/channels.py writes (the fixture is checked against the script by scripts/ota/test_channels.py): the
+// What mirror/scripts/ota/channels.py writes (the fixture is checked against the script by mirror/scripts/ota/test_channels.py): the
 // device side reads it, so the two ends cannot drift apart.
 void testManifestWrittenByTheScript() {
   std::ifstream f(std::string(MIRROR_GOLDEN_DIR) + "/../ota/channels_example.json");
@@ -198,7 +198,7 @@ void testManifestWrittenByTheScript() {
          m.channels[1].sha256.size() == 64);
 }
 
-// The file scripts/ota/channels.py writes (checked in by its own test) is what the device must understand.
+// The file mirror/scripts/ota/channels.py writes (checked in by its own test) is what the device must understand.
 void testManifestFromTheCiScript() {
   std::ifstream f(std::string(MIRROR_OTA_FIXTURE_DIR) + "/channels_example.json");
   OCHECK(static_cast<bool>(f));

@@ -84,4 +84,4 @@ jobs:
             echo "::notice::OTA_SIGNING_KEY is not set in the 'ota-signing' environment: nothing is published (see mirror/README.md, Firmware channels)"
             exit 0
           fi
-          scripts/ota/publish.sh
+          mirror/scripts/ota/publish.sh
