@@ -182,8 +182,8 @@ void testRunningBuild() {
   OCHECK(std::string(trustName(Trust::Stale)) == "STALE" && std::string(trustName(Trust::Ok)) == "OK");
 }
 
-// What mirror/scripts/ota/channels.py writes (the fixture is checked against the script by mirror/scripts/ota/test_channels.py): the
-// device side reads it, so the two ends cannot drift apart.
+// What mirror/scripts/ota/channels.py writes (the fixture is checked against the script by
+// mirror/scripts/ota/test_channels.py): the device side reads it, so the two ends cannot drift apart.
 void testManifestWrittenByTheScript() {
   std::ifstream f(std::string(MIRROR_GOLDEN_DIR) + "/../ota/channels_example.json");
   std::stringstream ss;
