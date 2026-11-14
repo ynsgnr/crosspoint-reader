@@ -636,7 +636,7 @@ static void testListRenderingAndOps() {
   changed.detail = "something else";
   CHECK(diff(gen::list::OpSetItem{1, changed}));
   d = r.render(g);
-  const int rowH = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  const int rowH = list::rowHeightFor(g, 3), top = g.lineHeight(Font::Title) + 12;
   CHECK(!d.full && !d.rects.empty());
   for (const Rect& rc : d.rects) CHECK(rc.y >= top + rowH && rc.y + rc.h <= top + 2 * rowH);
 
@@ -652,8 +652,31 @@ static void testListRenderingAndOps() {
   // The selected row is inverted: its left margin is black, an unselected row's is white.
   CHECK(diff(gen::list::OpSetSelected{2}));
   r.render(g);
-  CHECK(blackPixels(g, 0, top + rowH + 1, 4, top + 2 * rowH - 2) > 0);
-  CHECK(blackPixels(g, 0, top + 1, 4, top + rowH - 2) == 0);
+  const int rowH32 = list::rowHeightFor(g, 32);  // the list now holds 32 rows
+  CHECK(blackPixels(g, 0, top + rowH32 + 1, 4, top + 2 * rowH32 - 2) > 0);
+  CHECK(blackPixels(g, 0, top + 1, 4, top + rowH32 - 2) == 0);
+}
+
+// The rows share the whole height under the title: no empty band, and a short list is capped, not stretched without
+// limit.
+static void testListFillsTheScreen() {
+  sim::SimGfx g(480, 800);
+  const int natural = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  CHECK(list::rowHeightFor(g, 32) >= natural &&
+        list::rowHeightFor(g, 32) * static_cast<int>(list::visibleRows(g)) <= 800 - top);
+  CHECK(800 - top - list::rowHeightFor(g, 32) * static_cast<int>(list::visibleRows(g)) <
+        static_cast<int>(list::visibleRows(g)));  // < 1 px per row left over
+  CHECK(list::rowHeightFor(g, 1) == 4 * natural && list::rowHeightFor(g, 0) == 4 * natural);
+  const size_t fits = list::visibleRows(g);
+  CHECK(list::rowHeightFor(g, fits) == (800 - top) / static_cast<int>(fits));
+  list::ListRenderer r;
+  auto bytes = listFull(makeList(fits));
+  CHECK(r.onFull(bytes.data(), bytes.size()));
+  r.render(g);
+  int lowest = 0;
+  for (int y = 0; y < 800; ++y)
+    if (blackPixels(g, 0, y, 480, y + 1) > 0) lowest = y;
+  CHECK(lowest > 800 - list::rowHeightFor(g, fits));  // the last row's rule is within its own height of the bottom edge
 }
 
 static void testListFitAndScroll() {
@@ -678,7 +701,7 @@ static void testListFitAndScroll() {
   r.render(g);
   const size_t vis = list::visibleRows(g);
   CHECK(vis < 32);
-  const int lastY = g.lineHeight(Font::Title) + 12 + static_cast<int>(vis - 1) * list::rowHeight(g) + 4;
+  const int lastY = g.lineHeight(Font::Title) + 12 + static_cast<int>(vis - 1) * list::rowHeightFor(g, 32) + 4;
   CHECK(r.onTap(10, lastY, ev));
   auto e = decodeListEvent(ev);
   CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 32);
@@ -718,7 +741,7 @@ static void testListDeviceEvents() {
 
   // A tap on a row activates it and selects it at once; a tap on the title or below the rows does nothing.
   r.render(g);
-  const int rowH = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  const int rowH = list::rowHeightFor(g, 3), top = g.lineHeight(Font::Title) + 12;
   CHECK(r.onTap(100, top + rowH + 5, ev) && r.state().selected == 2);
   e = decodeListEvent(ev);
   CHECK(std::holds_alternative<gen::list::EventActivate>(e) && std::get<gen::list::EventActivate>(e).item == 2);
@@ -738,7 +761,7 @@ static void testSessionListTapAndSwitch() {
   CHECK(!d.session.onTap(100, 100));  // nothing drawn yet: no row to hit
   sim::SimGfx g(480, 800);
   d.session.active()->render(g);
-  const int rowH = list::rowHeight(g), top = g.lineHeight(Font::Title) + 12;
+  const int rowH = list::rowHeightFor(g, 3), top = g.lineHeight(Font::Title) + 12;
   CHECK(d.session.onTap(50, top + 2 * rowH + 3) && d.out.size() == 1);
   CHECK(d.out[0].has(gen::kFlagEvent) && d.out[0].templateId == 2);
   auto e = decodeListEvent(d.out[0].payload);
@@ -814,6 +837,7 @@ int main() {
   testDraftGrowsAndFollowsCursor();
   testSingleOpDiffWithTrailingBytesLeavesTheStateAlone();
   testListRenderingAndOps();
+  testListFillsTheScreen();
   testListFitAndScroll();
   testListDeviceEvents();
   testSessionListTapAndSwitch();

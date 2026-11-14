@@ -50,6 +50,12 @@ int rowHeight(const Gfx& g, const LayoutMetrics& m) {
   return g.lineHeight(Font::Body) + g.lineHeight(Font::Small) + 2 * m.padding + 1;
 }
 
+int rowHeightFor(const Gfx& g, size_t itemCount, const LayoutMetrics& m) {
+  const int natural = rowHeight(g, m);
+  const size_t shown = std::min(std::max<size_t>(itemCount, 1), visibleRows(g, m));
+  return std::clamp((g.height() - headerHeight(g)) / static_cast<int>(shown), natural, 4 * natural);
+}
+
 size_t visibleRows(const Gfx& g, const LayoutMetrics& m) {
   return static_cast<size_t>(std::max(1, (g.height() - headerHeight(g)) / rowHeight(g, m)));
 }
@@ -82,7 +88,8 @@ std::string fit(const Gfx& g, Font f, const std::string& t, int maxWidth) {
 Layout layout(const Gfx& g, const ListState& s, size_t first, const LayoutMetrics& m) {
   Layout out;
   const int W = g.width(), titleH = g.lineHeight(Font::Title), bodyH = g.lineHeight(Font::Body),
-            smallH = g.lineHeight(Font::Small), rowH = rowHeight(g, m), top = headerHeight(g);
+            smallH = g.lineHeight(Font::Small), rowH = rowHeightFor(g, s.items.size(), m), top = headerHeight(g);
+  const int pad = std::max(m.padding, (rowH - 1 - bodyH - smallH) / 2);  // the text block sits in the middle of the row
 
   // Header: title, "first-last/total" when the list does not fit, rule.
   int right = W - m.margin;
@@ -110,22 +117,22 @@ Layout layout(const Gfx& g, const ListState& s, size_t first, const LayoutMetric
     int metaW = it.meta.empty() ? 0 : g.textWidth(Font::Small, it.meta);
     if (metaW)
       out.items.push_back(
-          text({W - m.margin - metaW, y + m.padding + (bodyH - smallH) / 2, metaW, smallH}, Font::Small, it.meta, ink));
+          text({W - m.margin - metaW, y + pad + (bodyH - smallH) / 2, metaW, smallH}, Font::Small, it.meta, ink));
     const int labelW = W - 2 * m.margin - (metaW ? metaW + 8 : 0);
     out.items.push_back(
-        text({m.margin, y + m.padding, labelW, bodyH}, Font::Body, fit(g, Font::Body, it.label, labelW), ink));
+        text({m.margin, y + pad, labelW, bodyH}, Font::Body, fit(g, Font::Body, it.label, labelW), ink));
     int detailW = W - 2 * m.margin;
     if (it.badge) {
       const std::string b = it.badge > 99 ? "99+" : std::to_string(it.badge);
       const int bw = g.textWidth(Font::Small, b) + 10;
-      const Rect box{W - m.margin - bw, y + m.padding + bodyH, bw, smallH};
+      const Rect box{W - m.margin - bw, y + pad + bodyH, bw, smallH};
       out.items.push_back(shape(Item::Kind::Fill, box));
       out.items.back().black = !sel;  // a black box, white on the selected row
       out.items.push_back(text({box.x + 5, box.y, bw - 10, smallH}, Font::Small, b, sel));
       detailW -= bw + 8;
     }
-    out.items.push_back(text({m.margin, y + m.padding + bodyH, detailW, smallH}, Font::Small,
-                             fit(g, Font::Small, it.detail, detailW), ink));
+    out.items.push_back(
+        text({m.margin, y + pad + bodyH, detailW, smallH}, Font::Small, fit(g, Font::Small, it.detail, detailW), ink));
     if (!sel) out.items.push_back(shape(Item::Kind::Rule, {m.margin, y + rowH - 1, W - 2 * m.margin, 1}));
   }
   return out;

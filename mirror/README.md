@@ -92,6 +92,7 @@ Every template frame has a one-line band on top (`core/Frame.cpp`, `BandedGfx`):
 
 ## List template
 Rows of a chat app's conversation list (label, preview, time, unread badge); the selected row is shown inverted and the view scrolls to keep it visible.
+The rows share the whole height under the title (`rowHeightFor`, clamped to 1-4 times the natural row height), so a short list leaves no empty band below it.
 The device names a row by id only. Up/Down (and Left/Right, swipes, held buttons) move the highlight one row at once and send Chat's scroll events
 (`core/ScrollButtons.h` is shared with the chat); pressing on at the first or last held row makes the phone scroll its list, and the rows it brings into view arrive as diffs.
 Confirm or a tap on a row sends `Activate(id)` and the phone touches that row on its own screen (a tap is offered to the template first, so it only toggles dark mode

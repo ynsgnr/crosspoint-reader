@@ -34,9 +34,13 @@ struct LayoutMetrics {
   int padding = 6;  // above and below the text of a row
 };
 
-// Height of one row and how many fit under the title.
+// The smallest height of one row, and how many of those fit under the title.
 int rowHeight(const Gfx& g, const LayoutMetrics& m = {});
 size_t visibleRows(const Gfx& g, const LayoutMetrics& m = {});
+
+// The height each of `itemCount` rows gets: the rows share the whole height under the title (no empty band below them),
+// within [rowHeight, 4 * rowHeight] so a short list does not turn into a few huge rows.
+int rowHeightFor(const Gfx& g, size_t itemCount, const LayoutMetrics& m = {});
 
 // Index of the first row to show so that the selected row (if any) is visible, starting from `first`.
 size_t keepVisible(const Gfx& g, const gen::list::ListState& s, size_t first, const LayoutMetrics& m = {});
