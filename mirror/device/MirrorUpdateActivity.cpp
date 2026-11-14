@@ -40,15 +40,17 @@ namespace ota = mirror::ota;
 namespace {
 std::string clip(const std::string& s, size_t n) { return s.size() <= n ? s : s.substr(0, n - 1) + "~"; }
 
-// A TLS session needs total free heap and one contiguous block; free heap alone ignores fragmentation.
-bool heapAllowsTls() {
-  return ESP.getFreeHeap() >= HttpDownloader::MIN_TLS_FREE_HEAP &&
-         ESP.getMaxAllocHeap() >= HttpDownloader::MIN_TLS_MAX_ALLOC;
+// A TLS session needs total free heap and one contiguous block; free heap alone ignores fragmentation. `reserved` is
+// what the caller takes out of the heap before the session starts (a buffer it reserves first): the block TLS needs
+// must still be there after that.
+bool heapAllowsTls(size_t reserved = 0) {
+  return ESP.getFreeHeap() >= HttpDownloader::MIN_TLS_FREE_HEAP + reserved &&
+         ESP.getMaxAllocHeap() >= HttpDownloader::MIN_TLS_MAX_ALLOC + reserved;
 }
 
 // Fetches `url` into memory, at most `limit` bytes (more aborts the transfer). The buffer is reserved once, up front:
-// with -fno-exceptions a failed allocation inside a growing std::string aborts the device. `limit` stays well below
-// MIN_TLS_MAX_ALLOC, which the caller has already checked.
+// with -fno-exceptions a failed allocation inside a growing std::string aborts the device. The caller has checked
+// heapAllowsTls(limit) first.
 bool fetchBytes(const char* url, size_t limit, std::string& out) {
   out.clear();
   out.reserve(limit);
@@ -112,7 +114,7 @@ void MirrorUpdateActivity::onWifiSelectionComplete(const bool success) {
 bool MirrorUpdateActivity::fetchManifest() {
   // The short signature first, so the manifest buffer does not sit through a second TLS handshake.
   std::string signature, json;
-  if (!heapAllowsTls()) {
+  if (!heapAllowsTls(ota::kMaxSignatureBytes)) {
     fail("Not enough free memory for a secure connection: go Back and try again");
     return false;
   }
@@ -121,7 +123,7 @@ bool MirrorUpdateActivity::fetchManifest() {
                                              : "Could not reach the update server: check Wi-Fi and try again");
     return false;
   }
-  if (!heapAllowsTls()) {
+  if (!heapAllowsTls(ota::json::kMaxDocument)) {
     fail("Not enough free memory for a secure connection: go Back and try again");
     return false;
   }

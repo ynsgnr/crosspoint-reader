@@ -120,6 +120,7 @@ The device trusts only what the fork's OTA key signed, and every step before the
 4. The image goes to the SD card, its SHA-256 and size must equal the signed manifest's, then `FirmwareFlasher` validates it (header, checksum, SHA-256 trailer, chip, board tag) before it erases anything, and only then switches the boot partition.
 
 What this does not give you: a rollback. None is provided or tested, so a signed build that boots but misbehaves stays until you install another one (a channel again, the SD-card update, or the web flasher).
+The download is hashed and size-checked against the manifest only after it ends, so a hostile server can fill the SD card with a body that has no Content-Length until that check removes it.
 The flash itself is the stock one (`esp_partition` writes into the inactive slot, then `ota_boot::switchTo`), so a failure before the switch leaves the running slot untouched.
 
 **Publishing** (`.github/workflows/ota-publish.yml`, `scripts/ota/`). It runs from the base branch (`pull_request_target`) and never runs pull request code: the PR's firmware is built by the ordinary `mirror` workflow; the publisher waits for that run, hashes the image,
