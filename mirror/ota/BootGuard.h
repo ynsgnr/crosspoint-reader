@@ -28,7 +28,7 @@ enum class BootAction {
   Rollback,  // it used all its tries without confirming: switch back to prevSlot. The record is left as it is, so a
              // boot that cannot finish the rollback (or a failed switch) decides again; report the outcome with
              // rolledBackGuard/giveUpGuard
-  Stale,  // the record belongs to another build (the install was cut short, or an older firmware ran): dropped
+  Stale,     // the record belongs to another build (the install was cut short, or an older firmware ran): dropped
 };
 
 // Fixed-size record kept in NVS.
