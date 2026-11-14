@@ -60,6 +60,7 @@ class MirrorUpdateActivity final : public Activity {
   OptionPopup popup_;
   Pending pending_ = Pending::None;
   size_t pendingIndex_ = 0;
-  bool abort_ = false;  // set when the download outgrows the signed size
+  bool rolledBack_ = false;  // the last installed build was rolled back (shown above the channel list)
+  bool abort_ = false;       // set when the download outgrows the signed size
 };
 #endif

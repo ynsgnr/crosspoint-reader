@@ -119,7 +119,14 @@ The device trusts only what the fork's OTA key signed, and every step before the
 3. You choose a channel and confirm (Cancel is the default). The battery must be at 25% or more.
 4. The image goes to the SD card, its SHA-256 and size must equal the signed manifest's, then `FirmwareFlasher` validates it (header, checksum, SHA-256 trailer, chip, board tag) before it erases anything, and only then switches the boot partition.
 
-What this does not give you: a rollback. None is provided or tested, so a signed build that boots but misbehaves stays until you install another one (a channel again, the SD-card update, or the web flasher).
+**Automatic fallback.** Before it flashes, the installer records that the new build is *on trial* and which slot holds the running image (`ota/BootGuard.h`, NVS key `ota_guard`); if that cannot be saved, nothing is flashed.
+Every boot of that build counts a try (first thing in `setup()`, `device/OtaBoot.cpp`); a build whose main loop has run for 20 seconds confirms itself. A build that has not confirmed after 3 boots is replaced by the old image on the 4th: the boot partition is switched back and the device restarts.
+The record names the revision of the build on trial, so it never acts on another image, and a record that cannot be read or fails its checksum is ignored (the guard never rolls back on doubt). The Firmware channels screen says when the last build was rolled back.
+Its limits: it runs inside the new build, so it cannot help a build that fails before `setup()` (static initialisation, the bootloader), a build that boots and runs 20 seconds but misbehaves, or three power-offs inside the first 20 seconds. For those, recover by hand (below).
+
+**Recovery by hand.** Keep a known-good image on the SD card, anywhere (the picker lists every `.bin`), for example `/firmware-x4pro-mirror.bin`: download the artifact `firmware-x4pro-mirror.bin` of a green `mirror` workflow run on `develop-retink` (Actions > the run > Artifacts; it is a zip holding `firmware.bin`).
+Power on holding **Down** (X4 Pro) and the power button: the recovery screen lists the `.bin` files on the card; choose it and confirm. This runs early in `setup()`, so it works unless the build fails before that point; then use the USB web flasher.
+Try this once on a healthy device before relying on it.
 The download is hashed and size-checked against the manifest only after it ends, so a hostile server can fill the SD card with a body that has no Content-Length until that check removes it.
 The flash itself is the stock one (`esp_partition` writes into the inactive slot, then `ota_boot::switchTo`), so a failure before the switch leaves the running slot untouched.
 

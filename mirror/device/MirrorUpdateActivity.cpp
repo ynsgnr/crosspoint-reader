@@ -22,6 +22,7 @@
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
 #include "device/MirrorSettings.h"
+#include "device/OtaBoot.h"
 #include "device/OtaVerify.h"
 #include "fontIds.h"
 #include "network/FirmwareBoardTag.h"
@@ -158,6 +159,7 @@ void MirrorUpdateActivity::chooseChannel() {
     labels.push_back(c.id + " " + c.rev + (running ? " (running)" : "") + ": " + clip(c.title, 28));
   }
   labels.push_back(tr(STR_CANCEL));
+  rolledBack_ = ota::rolledBackNotice();
   {
     RenderLock lock(*this);
     state_ = State::Choosing;
@@ -241,6 +243,13 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
     return fail("The download does not match the signed channel list");
   }
 
+  // The new build is put on trial before anything is flashed: if it then fails to start, the device goes back to this
+  // image by itself (ota/BootGuard.h). Without that record there is no automatic way back, so the install does not
+  // start.
+  if (!ota::armBootGuard(c.rev)) {
+    Storage.remove(ota::kStagePath);
+    return fail("Could not save the fallback information: nothing was changed");
+  }
   // The flasher validates the whole image (header, checksum, SHA-256 trailer, chip, board tag) before it erases
   // anything, and only then switches the boot partition.
   done_ = 0;
@@ -254,6 +263,7 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
       this);
   Storage.remove(ota::kStagePath);
   if (result != firmware_flash::Result::OK) {
+    ota::disarmBootGuard();  // the old image is still the boot target: nothing is on trial
     const bool wrongDevice =
         result == firmware_flash::Result::BAD_CHIP || result == firmware_flash::Result::WRONG_BOARD;
     return fail(wrongDevice ? tr(STR_FIRMWARE_WRONG_DEVICE)
@@ -300,6 +310,10 @@ void MirrorUpdateActivity::render(RenderLock&&) {
       const int infoTop = h / 6;
       renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop,
                         (std::string("Running: ") + CROSSPOINT_VERSION + " " + MIRROR_GIT_REV).c_str());
+      if (rolledBack_) {
+        renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop + line + metrics.verticalSpacing,
+                          "The last build did not start: rolled back");
+      }
       if (popup_.processRender(renderer, mappedInput)) return;
       break;
     }

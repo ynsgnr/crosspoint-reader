@@ -1,10 +1,12 @@
 #include "tests/ota_tests.h"
 
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 #include <string>
 
+#include "ota/BootGuard.h"
 #include "ota/MiniJson.h"
 #include "ota/OtaManifest.h"
 
@@ -213,6 +215,76 @@ void testManifestFromTheCiScript() {
   OCHECK(open(ss.str(), m, policy(1763100002)) == Trust::Stale);  // a newer manifest was already accepted
 }
 
+void testBootGuardTrialAndRollback() {
+  BootGuard g;
+  OCHECK(onBootGuard(g, "a16f221d") == BootAction::Nothing);  // no trial: nothing happens
+  armGuard(g, 1, "a16f221d");
+  OCHECK(g.pending && g.tries == 0 && g.prevSlot == 1 && !g.rolledBack);
+  // A build that never confirms gets kMaxBootTries boots, and the next boot rolls back.
+  for (int i = 1; i <= kMaxBootTries; ++i) OCHECK(onBootGuard(g, "a16f221d") == BootAction::Proceed && g.tries == i);
+  OCHECK(onBootGuard(g, "a16f221d") == BootAction::Rollback);
+  OCHECK(!g.pending && g.rolledBack && g.prevSlot == 1);
+  OCHECK(onBootGuard(g, "97f15374") == BootAction::Nothing);  // the old image boots: nothing left to do
+  // A build that confirms in time keeps its place.
+  armGuard(g, 0, "bbbbbbbb");
+  OCHECK(onBootGuard(g, "bbbbbbbb") == BootAction::Proceed);
+  OCHECK(!guardConfirmDue(g, kConfirmAfterMs - 1) && guardConfirmDue(g, kConfirmAfterMs));
+  confirmGuard(g);
+  OCHECK(!g.pending && g.tries == 0 && !guardConfirmDue(g, 1u << 30));
+  OCHECK(onBootGuard(g, "bbbbbbbb") == BootAction::Nothing);
+  // A new trial clears the notice of the last rollback.
+  g.rolledBack = true;
+  armGuard(g, 1, "cccccccc");
+  OCHECK(!g.rolledBack);
+}
+
+void testBootGuardNeverActsOnAnotherBuild() {
+  BootGuard g;
+  armGuard(g, 1, "a16f221d");
+  OCHECK(onBootGuard(g, "97f15374") == BootAction::Stale);  // the install was cut short: the old image is still running
+  OCHECK(!g.pending && g.tries == 0);
+  armGuard(g, 1, "a16f221d");
+  OCHECK(onBootGuard(g, "a16f221d+") == BootAction::Stale);  // a dirty local build is never the one that was installed
+  armGuard(g, 1, "a16f221d");
+  for (int i = 0; i < kMaxBootTries; ++i) onBootGuard(g, "a16f221d");
+  OCHECK(onBootGuard(g, "97f15374") ==
+         BootAction::Stale);  // even at the last try, another build never rolls anything back
+  OCHECK(!g.rolledBack);
+  armGuard(g, 1, "a16f221d");
+  disarmGuard(g);  // the flash failed
+  OCHECK(onBootGuard(g, "a16f221d") == BootAction::Nothing);
+}
+
+void testBootGuardRecord() {
+  BootGuard g;
+  armGuard(g, 1, "a16f221d");
+  onBootGuard(g, "a16f221d");
+  uint8_t blob[kGuardBlobSize];
+  encodeGuard(g, blob);
+  BootGuard r;
+  OCHECK(decodeGuard(blob, sizeof blob, r) && r.pending && r.tries == 1 && r.prevSlot == 1 && r.rev == "a16f221d" &&
+         !r.rolledBack);
+  g.pending = false;
+  g.rolledBack = true;
+  encodeGuard(g, blob);
+  OCHECK(decodeGuard(blob, sizeof blob, r) && !r.pending && r.rolledBack);
+  // Anything that is not a record this firmware wrote is refused, so a damaged one can never cause a rollback.
+  armGuard(g, 1, "a16f221d");
+  encodeGuard(g, blob);
+  OCHECK(!decodeGuard(blob, sizeof blob - 1, r) && !decodeGuard(nullptr, 0, r));
+  for (size_t i = 0; i < sizeof blob; ++i) {
+    uint8_t bad[kGuardBlobSize];
+    std::memcpy(bad, blob, sizeof bad);
+    bad[i] ^= 0x10;
+    OCHECK(!decodeGuard(bad, sizeof bad, r));  // every single flipped bit pattern changes the checksum or the format
+  }
+  BootGuard junk;
+  junk.pending = true;
+  junk.rev = "not-hex!";
+  encodeGuard(junk, blob);
+  OCHECK(!decodeGuard(blob, sizeof blob, r));
+}
+
 }  // namespace
 
 int runOtaTests(int& checks) {
@@ -225,6 +297,9 @@ int runOtaTests(int& checks) {
   testOrderDuplicatesAndLimit();
   testRunningBuild();
   testManifestFromTheCiScript();
+  testBootGuardTrialAndRollback();
+  testBootGuardNeverActsOnAnotherBuild();
+  testBootGuardRecord();
   testManifestWrittenByTheScript();
   checks += g_checks;
   return g_fail;
