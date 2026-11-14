@@ -88,4 +88,11 @@ void giveUpGuard(BootGuard& g) {
   g.tries = 0;
 }
 
+bool rollbackFailedGuard(BootGuard& g) {
+  ++g.tries;  // past kMaxBootTries: each failed attempt moves it one further
+  if (g.tries < kMaxBootTries + kMaxRollbackAttempts) return false;
+  giveUpGuard(g);
+  return true;
+}
+
 }  // namespace mirror::ota

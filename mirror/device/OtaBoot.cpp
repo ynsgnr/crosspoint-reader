@@ -113,9 +113,13 @@ void bootGuardAtStart() {
     save(g);
     return;
   }
-  // A failed switch leaves the record as it is: the next boot decides again. The restart comes only after a good
-  // switch.
-  if (!ota_boot::switchTo(prev)) return;
+  // A failed switch is tried again on the next boot, but only kMaxRollbackAttempts times: switchTo erases a flash
+  // sector, so a boot loop must not repeat it for ever. The restart comes only after a good switch.
+  if (!ota_boot::switchTo(prev)) {
+    if (rollbackFailedGuard(g)) ESP_LOGE("ota", "rollback failed repeatedly: giving up");
+    save(g);
+    return;
+  }
   rolledBackGuard(g);
   save(g);
   esp_restart();

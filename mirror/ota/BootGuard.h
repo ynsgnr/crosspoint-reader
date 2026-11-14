@@ -19,6 +19,7 @@ struct BootGuard {
 };
 
 constexpr uint8_t kMaxBootTries = 3;
+constexpr uint8_t kMaxRollbackAttempts = 3;  // a switch that keeps failing is tried this many times, then given up
 constexpr uint32_t kConfirmAfterMs = 10000;  // uptime, counted from boot
 
 // What the boot-time check decided.
@@ -47,5 +48,8 @@ void confirmGuard(BootGuard& g);
 void rolledBackGuard(BootGuard& g);
 // There is nothing to go back to (the old image is gone): the trial is over, quietly.
 void giveUpGuard(BootGuard& g);
+// The switch back failed. Counts the attempt and ends the trial after kMaxRollbackAttempts, so a boot loop cannot erase
+// the otadata sector on every boot for ever. True when the trial is over.
+bool rollbackFailedGuard(BootGuard& g);
 
 }  // namespace mirror::ota

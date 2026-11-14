@@ -229,6 +229,14 @@ void testBootGuardTrialAndRollback() {
   rolledBackGuard(g);
   OCHECK(!g.pending && g.rolledBack && g.prevSlot == 1 && g.tries == 0);
   OCHECK(onBootGuard(g, "97f15374") == BootAction::Nothing);  // the old image boots: nothing left to do
+  // A switch that keeps failing is tried kMaxRollbackAttempts times, then the trial ends: no endless flash erases.
+  armGuard(g, 1, "eeeeeeee");
+  for (int i = 0; i < kMaxBootTries; ++i) onBootGuard(g, "eeeeeeee");
+  for (int attempt = 1; attempt <= kMaxRollbackAttempts; ++attempt) {
+    OCHECK(onBootGuard(g, "eeeeeeee") == BootAction::Rollback);
+    OCHECK(rollbackFailedGuard(g) == (attempt == kMaxRollbackAttempts));
+  }
+  OCHECK(!g.pending && !g.rolledBack && onBootGuard(g, "eeeeeeee") == BootAction::Nothing);
   // No old image to go back to: the trial just ends, with no notice.
   armGuard(g, 1, "dddddddd");
   for (int i = 0; i < kMaxBootTries; ++i) onBootGuard(g, "dddddddd");
