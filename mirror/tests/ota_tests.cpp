@@ -196,18 +196,20 @@ void testManifestWrittenByTheScript() {
          m.channels[1].sha256.size() == 64);
 }
 
-// The file scripts/ota/manifest.py writes (checked into the repo by its own test) is what the device must understand.
+// The file scripts/ota/channels.py writes (checked in by its own test) is what the device must understand.
 void testManifestFromTheCiScript() {
-  std::ifstream f(std::string(MIRROR_OTA_FIXTURE_DIR) + "/channels.sample.json");
+  std::ifstream f(std::string(MIRROR_OTA_FIXTURE_DIR) + "/channels_example.json");
   OCHECK(static_cast<bool>(f));
   std::stringstream ss;
   ss << f.rdbuf();
   Manifest m;
   OCHECK(open(ss.str(), m) == Trust::Ok);
   OCHECK(m.issued == 1763100001 && m.channels.size() == 2);
-  OCHECK(m.channels[0].id == "develop" && m.channels[0].rev == "97f15374" && m.channels[0].size == 3000000);
+  OCHECK(m.channels[0].id == "develop" && m.channels[0].rev == "97f15374" && m.channels[0].size == 600000);
+  OCHECK(m.channels[0].title == "Integration branch \xC3\xA9");  // the \u00e9 escape, as UTF-8
   OCHECK(m.channels[1].id == "pr-19" && m.channels[1].title == "List template on the device" &&
-         m.channels[1].url == std::string(kPrefix) + "pr-19-a16f221d.bin" && m.channels[1].sha256.size() == 64);
+         m.channels[1].url == std::string(kPrefix) + "pr-19-firmware-x4pro-mirror.bin" &&
+         m.channels[1].sha256.size() == 64);
   OCHECK(open(ss.str(), m, policy(1763100002)) == Trust::Stale);  // a newer manifest was already accepted
 }
 
