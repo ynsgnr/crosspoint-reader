@@ -77,7 +77,7 @@ bool armBootGuard(const std::string& rev) {
 void disarmBootGuard() {
   BootGuard g;
   if (load(g) != Load::Record) return;
-  disarmGuard(g);
+  endTrial(g);
   save(g);
 }
 
@@ -109,7 +109,7 @@ void bootGuardAtStart() {
   ESP_LOGE("ota", "build %s did not confirm in %u boots: %s", MIRROR_GIT_REV, static_cast<unsigned>(kMaxBootTries),
            canGoBack ? "rolling back" : "no usable previous image");
   if (!canGoBack) {
-    giveUpGuard(g);
+    endTrial(g);
     save(g);
     return;
   }
@@ -120,7 +120,7 @@ void bootGuardAtStart() {
     save(g);
     return;
   }
-  rolledBackGuard(g);
+  endTrial(g);
   save(g);
   esp_restart();
 }
@@ -138,13 +138,8 @@ void bootGuardTick(uint32_t uptimeMs) {
   }
   settled = true;
   if (result != Load::Record || !guardConfirmDue(g, uptimeMs)) return;
-  confirmGuard(g);
+  endTrial(g);
   if (save(g)) ESP_LOGI("ota", "build %s confirmed", MIRROR_GIT_REV);
-}
-
-bool rolledBackNotice() {
-  BootGuard g;
-  return load(g) == Load::Record && g.rolledBack;
 }
 
 }  // namespace mirror::ota

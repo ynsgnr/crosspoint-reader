@@ -43,10 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - name: Channel manifest tool, fixture and signature round trip
-        run: python3 mirror/scripts/ota/test_channels.py
-      - name: Shell syntax of the publisher
-        run: bash -n mirror/scripts/ota/publish.sh
+      - run: mirror/scripts/ota/test.sh
 
   generated-files:
     name: Generated files untouched

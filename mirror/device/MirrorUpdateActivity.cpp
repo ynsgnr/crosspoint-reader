@@ -21,13 +21,11 @@
 #include "SilentRestart.h"
 #include "activities/network/WifiSelectionActivity.h"
 #include "components/UITheme.h"
-#include "device/MirrorSettings.h"
 #include "device/OtaBoot.h"
 #include "device/OtaVerify.h"
 #include "fontIds.h"
 #include "network/FirmwareBoardTag.h"
 #include "network/FirmwareFlasher.h"
-#include "ota/MiniJson.h"
 #include "ota/OtaConfig.h"
 #if __has_include("device/BuildInfo.h")
 #include "device/BuildInfo.h"  // MIRROR_GIT_REV, written by mirror/build.py
@@ -108,65 +106,59 @@ void MirrorUpdateActivity::onWifiSelectionComplete(const bool success) {
   if (!success) return finish();
   setState(State::Fetching);
   if (!fetchManifest()) return;
-  if (manifest_.channels.empty()) return fail("No firmware builds are published for this device yet");
+  if (channels_.empty()) return fail("No firmware builds are published for this device yet");
   chooseChannel();
 }
 
 bool MirrorUpdateActivity::fetchManifest() {
+  const std::string board(board_tag::boardName(), board_tag::boardNameLen());
   // The short signature first, so the manifest buffer does not sit through a second TLS handshake.
-  std::string signature, json;
+  std::string signature, text;
   if (!heapAllowsTls(ota::kMaxSignatureBytes)) {
     fail("Not enough free memory for a secure connection: go Back and try again");
     return false;
   }
-  if (!fetchBytes(ota::kSignatureUrl, ota::kMaxSignatureBytes, signature)) {
+  if (!fetchBytes(ota::signatureUrl(board).c_str(), ota::kMaxSignatureBytes, signature)) {
     fail(HttpDownloader::lastStatus() == 404 ? "No channel list is published yet"
                                              : "Could not reach the update server: check Wi-Fi and try again");
     return false;
   }
-  if (!heapAllowsTls(ota::json::kMaxDocument)) {
+  if (!heapAllowsTls(ota::kMaxManifestBytes)) {
     fail("Not enough free memory for a secure connection: go Back and try again");
     return false;
   }
-  if (!fetchBytes(ota::kManifestUrl, ota::json::kMaxDocument, json)) {
+  if (!fetchBytes(ota::manifestUrl(board).c_str(), ota::kMaxManifestBytes, text)) {
     fail("Could not reach the update server: check Wi-Fi and try again");
     return false;
   }
-  ota::Policy policy;
-  policy.board.assign(board_tag::boardName(), board_tag::boardNameLen());
-  policy.urlPrefix = ota::kReleaseBase;
-  const esp_partition_t* dest = esp_ota_get_next_update_partition(nullptr);
-  policy.maxImageBytes = dest ? dest->size : 0;
-  policy.lastIssued = mirror::settings::otaLastIssued();
   const ota::EcdsaVerifier verifier;
-  const ota::Trust trust = ota::openManifest(json, reinterpret_cast<const uint8_t*>(signature.data()), signature.size(),
-                                             verifier, policy, manifest_);
-  if (trust != ota::Trust::Ok) {
-    fail(trust == ota::Trust::Stale ? "This channel list is out of date: try again later"
-         : trust == ota::Trust::BadSignature
-             ? "The channel list is not signed by the update key (or was being replaced): try again"
-             : "The channel list is not valid");
+  const ota::Trust trust = ota::openManifest(text, reinterpret_cast<const uint8_t*>(signature.data()), signature.size(),
+                                             verifier, channels_);
+  if (trust == ota::Trust::BadSignature) {
+    fail("The channel list is not signed by the update key (or was being replaced): try again");
     return false;
   }
-  mirror::settings::commitOtaIssued(manifest_.issued);
+  if (trust == ota::Trust::BadFormat) {
+    fail("The channel list is not valid");
+    return false;
+  }
   return true;
 }
 
 void MirrorUpdateActivity::chooseChannel() {
   std::vector<std::string> labels;
-  for (const ota::Channel& c : manifest_.channels) {
+  for (const ota::Channel& c : channels_) {
     const bool running = !ota::differsFromRunning(c, MIRROR_GIT_REV);
     labels.push_back(c.id + " " + c.rev + (running ? " (running)" : "") + ": " + clip(c.title, 28));
   }
   labels.push_back(tr(STR_CANCEL));
-  rolledBack_ = ota::rolledBackNotice();
   {
     RenderLock lock(*this);
     state_ = State::Choosing;
   }
   // The callbacks only record the choice: show() replaces the popup's callback, so it must not run inside it.
   popup_.show(StrId::STR_UPDATE, labels, 0, [this](const int idx) {
-    if (idx < 0 || static_cast<size_t>(idx) >= manifest_.channels.size()) return finish();
+    if (idx < 0 || static_cast<size_t>(idx) >= channels_.size()) return finish();
     pendingIndex_ = static_cast<size_t>(idx);
     pending_ = Pending::Confirm;
   });
@@ -174,7 +166,7 @@ void MirrorUpdateActivity::chooseChannel() {
 }
 
 void MirrorUpdateActivity::confirmChannel(const size_t index) {
-  const ota::Channel& c = manifest_.channels[index];
+  const ota::Channel& c = channels_[index];
   const std::string headline = c.id + " (" + c.rev + "): " + clip(c.title, 60);
   const char* const options[] = {tr(STR_CANCEL), "Install"};
   {
@@ -193,9 +185,9 @@ void MirrorUpdateActivity::runPending() {
   const Pending what = pending_;
   pending_ = Pending::None;
   if (what == Pending::Choose) return chooseChannel();
-  if (pendingIndex_ >= manifest_.channels.size()) return;
+  if (pendingIndex_ >= channels_.size()) return;
   if (what == Pending::Confirm) return confirmChannel(pendingIndex_);
-  if (what == Pending::Install) return install(manifest_.channels[pendingIndex_]);
+  if (what == Pending::Install) return install(channels_[pendingIndex_]);
 }
 
 void MirrorUpdateActivity::progress(const size_t done, const size_t total) {
@@ -222,8 +214,9 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
   // A body longer than the signed size can only be wrong: stop it instead of filling the SD card.
   abort_ = false;
   const size_t signedSize = c.size;
+  const std::string board(board_tag::boardName(), board_tag::boardNameLen());
   const auto err = HttpDownloader::downloadToFile(
-      c.url, ota::kStagePath,
+      ota::imageUrl(c.id, board), ota::kStagePath,
       [this, signedSize](size_t d, size_t t) {
         if (d > signedSize) abort_ = true;
         progress(d, t);
@@ -310,13 +303,6 @@ void MirrorUpdateActivity::render(RenderLock&&) {
       const int infoTop = h / 6;
       renderer.drawText(UI_10_FONT_ID, metrics.contentSidePadding, infoTop,
                         (std::string("Running: ") + CROSSPOINT_VERSION + " " + MIRROR_GIT_REV).c_str());
-      if (rolledBack_) {
-        const int y = infoTop + line + metrics.verticalSpacing;
-        UITheme::drawCenteredWrappedText(
-            renderer, Rect{metrics.contentSidePadding, y, w - metrics.contentSidePadding * 2, 2 * line}, UI_10_FONT_ID,
-            "Last build was rolled back (it did not stay running)", 2, true, EpdFontFamily::REGULAR,
-            UITheme::TextVerticalAlignment::TOP);
-      }
       if (popup_.processRender(renderer, mappedInput)) return;
       break;
     }

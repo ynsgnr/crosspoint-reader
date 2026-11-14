@@ -1,9 +1,11 @@
 #pragma once
 #if defined(CROSSPOINT_MIRROR)
 // Firmware channels: installs a build CI published (the develop branch or an open pull request), after checking it.
-//   Wi-Fi -> signed manifest (signature first, then the policy of ota/OtaManifest.h) -> choose a channel -> confirm ->
-//   download to the SD card -> SHA-256 against the manifest -> the firmware flasher's own image checks and flash.
+//   Wi-Fi -> signed manifest (signature first, then the format check of ota/OtaManifest.h) -> choose a channel ->
+//   confirm -> download to the SD card -> SHA-256 against the manifest -> the firmware flasher's own image checks and
+//   flash.
 #include <string>
+#include <vector>
 
 #include "activities/Activity.h"
 #include "components/OptionPopup.h"
@@ -53,14 +55,13 @@ class MirrorUpdateActivity final : public Activity {
   void progress(size_t done, size_t total);
 
   State state_ = State::Wifi;
-  mirror::ota::Manifest manifest_;
+  std::vector<mirror::ota::Channel> channels_;
   std::string failure_;
   size_t done_ = 0, total_ = 0;
   int lastPercent_ = -1;
   OptionPopup popup_;
   Pending pending_ = Pending::None;
   size_t pendingIndex_ = 0;
-  bool rolledBack_ = false;  // the last installed build was rolled back (shown above the channel list)
-  bool abort_ = false;       // set when the download outgrows the signed size
+  bool abort_ = false;  // set when the download outgrows the signed size
 };
 #endif

@@ -20,8 +20,5 @@ void bootGuardAtStart();
 // kConfirmAfterMs.
 void bootGuardTick(uint32_t uptimeMs);
 
-// The last trial ended in a rollback (until the next install).
-bool rolledBackNotice();
-
 }  // namespace mirror::ota
 #endif

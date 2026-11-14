@@ -1,154 +1,136 @@
 #!/usr/bin/env bash
-# Publishes the OTA channels (see .github/workflows/ota-publish.yml). Runs from the base branch only; it never executes
-# anything from a pull request: the PR's firmware is downloaded, hashed and listed as opaque data.
+# Publishes the signed OTA channels to the GitHub release "ota" (called by .github/workflows/ota-publish.yml).
 #
-# Environment: GH_TOKEN, REPO, KIND (develop | pr | sweep | reconcile), CHANNEL (develop | pr-N), SHA (the commit the
-# image was built from), TITLE, OTA_SIGNING_KEY (PEM). The release "ota" holds channels.json, channels.json.sig and one
-# image per channel.
-#   develop / pr   publish that channel, after sweeping channels whose pull request is gone
-#   sweep          only the sweep
-#   reconcile      the sweep, then publish develop-retink and every open labelled PR that is missing or out of date
-# Any failed GitHub call stops the run before anything is changed: a transient error must never shorten the manifest.
+# The release holds, per board:   channels-<board>.txt       the list (format: mirror/ota/OtaManifest.h)
+#                                 channels-<board>.txt.sig   its ECDSA P-256 signature
+#                                 <id>-<board>.bin           one image per channel (id: "develop" or "pr-<number>")
+# Environment: GH_TOKEN REPO OTA_SIGNING_KEY, and for the event that started the run: EVENT (push or pull_request_target),
+# SHA (the commit to publish), PR and TITLE (the pull request's number and title).
+# Nothing from a pull request is run here: its firmware is downloaded, hashed and listed as opaque data.
+# Any failed GitHub call stops the script before anything is changed.
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$HERE/../../.." && pwd)"   # the repository root
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
-MANIFEST="$WORK/channels.json"
-BASE="https://github.com/${REPO}/releases/download/ota"
+
 BOARD=x4pro
-ASSET_SUFFIX=firmware-x4pro-mirror.bin   # artifact of the "mirror" workflow's x4pro-macro build
-INTEGRATION_BRANCH=develop-retink
-changed=0
-WAIT_TRIES=60   # polls of 30 s for the build of a commit that was just pushed; reconcile looks once (see below)
+ARTIFACT=firmware-x4pro-mirror.bin   # what the "mirror" workflow uploads
+BRANCH=develop-retink                # the "develop" channel, and the base branch of the pull requests that get a channel
+MAX_CHANNELS=8
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"   # the repository root
+LIST="channels-$BOARD.txt"
 
 log() { echo "ota: $*"; }
 
-gh release view ota -R "$REPO" >/dev/null 2>&1 || gh release create ota -R "$REPO" --prerelease --latest=false \
-  --title "OTA channels" --notes "Signed firmware builds for the Firmware channels screen. Written by CI; do not edit."
+# ---- the list: "<id> <rev> <built> <size> <sha256> <title>", develop first, then pull requests newest first ----
 
-# Start from an empty manifest only when the release really has none. A manifest that exists but cannot be downloaded
-# stops the run: continuing from an empty one would publish a list without every other channel.
-if [ "$(gh release view ota -R "$REPO" --json assets --jq '[.assets[].name] | index("channels.json") | if . == null then "no" else "yes" end')" = yes ]; then
-  gh release download ota -R "$REPO" -p channels.json -D "$WORK" --clobber
-else
-  : > "$MANIFEST"
-fi
-
-# Reads the manifest: "ids" lists the channel ids, "rev <id>" prints that channel's revision (empty when absent).
-manifest() {
-  python3 - "$MANIFEST" "$@" <<'PY'
-import json, sys
-path, what = sys.argv[1], sys.argv[2]
-try:
-    channels = json.load(open(path))["channels"]
-except (OSError, ValueError, KeyError):
-    channels = []
-if what == "ids":
-    print("\n".join(c["id"] for c in channels))
-else:
-    print(next((c["rev"] for c in channels if c["id"] == sys.argv[3]), ""))
-PY
+# stdin -> stdout, in that order, at most $MAX_CHANNELS lines
+list_order() {
+  local all
+  all=$(cat)
+  { grep '^develop ' <<<"$all" || true; { grep '^pr-' <<<"$all" || true; } | sort -t' ' -k1.4,1.9nr; } | sed -n "1,${MAX_CHANNELS}p"
 }
 
-# 0 when pull request $1 is open, from this repository and labelled "ota". A call that fails for any reason other than
-# "no such pull request" aborts the run (set -e) instead of reading as "closed".
-pr_is_live() {
-  local info
-  if ! info="$(gh pr view "$1" -R "$REPO" --json state,labels,headRepository,headRepositoryOwner 2>"$WORK/err")"; then
-    grep -qi "could not resolve" "$WORK/err" && return 1
-    cat "$WORK/err" >&2
-    exit 1
-  fi
-  python3 -c '
-import json, sys
-d, repo = json.load(sys.stdin), sys.argv[1].lower()
-same = (d["headRepositoryOwner"]["login"] + "/" + d["headRepository"]["name"]).lower() == repo
-sys.exit(0 if d["state"] == "OPEN" and same and any(l["name"] == "ota" for l in d["labels"]) else 1)' "$REPO" <<<"$info"
+# list_set FILE id rev built size sha256 title: adds the channel, or replaces the one with the same id
+list_set() {
+  local file=$1 id=$2 title
+  title=$(printf '%s' "$7" | LC_ALL=C tr -cd '[:print:]' | tr -s ' ' | sed 's/^ //; s/ $//' | cut -c1-96)
+  { { grep -v "^$id " "$file" || true; } ; printf '%s %s %s %s %s %s\n' "$id" "$3" "$4" "$5" "$6" "${title:-untitled}"; } | list_order > "$file.new"
+  mv "$file.new" "$file"
 }
 
-# A pull request channel lives only while its PR is open, from this repository and labelled "ota". Runs every time,
-# so a missed close event is repaired by the next run.
-sweep() {
+# list_drop FILE id
+list_drop() {
+  { grep -v "^$2 " "$1" || true; } > "$1.new"
+  mv "$1.new" "$1"
+}
+
+# ---- signing ----
+
+hex_of_key_array() { grep -o '0x[0-9a-fA-F][0-9a-fA-F]' "$1" | cut -c3-4 | tr -d '\n' | tr 'A-F' 'a-f'; }
+
+# The signing key must be the one compiled into the firmware (mirror/ota/OtaKey.h), or no device would accept the result.
+key_matches_firmware() {   # KEY [HEADER]
+  [ "$(openssl ec -in "$1" -pubout -outform DER 2>/dev/null | od -An -v -tx1 | tr -d ' \n')" = "$(hex_of_key_array "${2:-$ROOT/mirror/ota/OtaKey.h}")" ]
+}
+
+# sign KEY FILE: writes FILE.sig (DER), the format the device checks
+sign() {
+  openssl dgst -sha256 -sign "$1" -out "$2.sig" "$2"
+}
+
+# ---- the release ----
+
+# The channels whose pull request is open and from this repository: "pr-<number>" per line.
+open_pull_requests() {
+  gh pr list -R "$REPO" --base "$BRANCH" --state open --json number,isCrossRepository \
+    --jq '.[] | select(.isCrossRepository | not) | "pr-\(.number)"'
+}
+
+# Removes the channels of pull requests that are no longer open ones of this repository ($LIVE); the list is checked on every
+# run, so a missed event heals.
+drop_closed() {
   local id
-  for id in $(manifest ids); do
-    [[ "$id" == pr-* ]] || continue
-    if ! pr_is_live "${id#pr-}"; then
-      log "removing $id (closed, relabelled or gone)"
-      python3 "$HERE/channels.py" remove --manifest "$MANIFEST" --id "$id"
-      gh release delete-asset ota "$id-$ASSET_SUFFIX" -R "$REPO" -y 2>/dev/null || true
-      changed=1
-    fi
+  for id in $(grep -o '^pr-[0-9]*' "$WORK/$LIST" || true); do
+    grep -qx "$id" <<<"$LIVE" && continue
+    log "removing $id (closed)"
+    list_drop "$WORK/$LIST" "$id"
+    gh release delete-asset ota "$id-$BOARD.bin" -R "$REPO" -y 2>/dev/null || true
+    changed=1
   done
 }
 
-# Adds or replaces channel $1 from the image the "mirror" workflow built for commit $2; $3 is the title.
+# Adds or replaces channel $1 from the image the "mirror" workflow built for commit $2 ($3 is the title).
 publish_channel() {
-  local channel="$1" sha="$2" title="$3" run image
-  [[ "$channel" =~ ^(develop|pr-[1-9][0-9]{0,5})$ ]] || { log "bad channel id"; exit 1; }
-  [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { log "bad commit"; exit 1; }
-  # Wait for the build of exactly this commit; publish only a green one.
-  run=""
-  for i in $(seq 1 "$WAIT_TRIES"); do
-    run="$(gh run list -R "$REPO" --workflow mirror.yml --commit "$sha" --json databaseId,status,conclusion --limit 10 \
-      --jq 'map(select(.status=="completed")) | first | if . == null then "" else "\(.databaseId) \(.conclusion)" end')"
+  local id=$1 sha=$2 title=$3 run image
+  [[ "$id" =~ ^(develop|pr-[1-9][0-9]{0,5})$ && "$sha" =~ ^[0-9a-f]{40}$ ]] || { log "bad channel or commit"; exit 1; }
+  # Wait for the build of exactly this commit (the pull request's own run), and publish only a green one.
+  for _ in $(seq 1 60); do
+    run=$(gh run list -R "$REPO" --workflow mirror.yml --commit "$sha" --json databaseId,status,conclusion --limit 10 \
+      --jq 'map(select(.status == "completed")) | first | if . == null then "" else "\(.databaseId) \(.conclusion)" end')
     [ -n "$run" ] && break
-    [ "$i" -lt "$WAIT_TRIES" ] && sleep 30
+    sleep "${POLL_SECONDS:-30}"   # (the test shortens it)
   done
-  if [ -z "$run" ]; then log "no finished build for $sha (does it change files the mirror workflow watches?): $channel not published"; return 0; fi
-  if [ "${run#* }" != "success" ]; then log "the build for $sha ended '${run#* }': $channel not published"; return 0; fi
-  mkdir -p "$WORK/dl"
-  gh run download "${run% *}" -R "$REPO" -n "$ASSET_SUFFIX" -D "$WORK/dl"
-  image="$WORK/$channel-$ASSET_SUFFIX"
-  mv "$WORK/dl/firmware.bin" "$image"
-  # The device's automatic fallback acts only on an image that reports this revision (mirror/ota/BootGuard.h); the build
-  # itself checks it, this is the second look at the file that is actually published.
-  LC_ALL=C grep -aqF -- "${sha:0:8}" "$image" || { log "the image does not carry revision ${sha:0:8}: $channel not published"; return 0; }
-  python3 "$HERE/channels.py" add --manifest "$MANIFEST" --id "$channel" --title "$title" --rev "${sha:0:8}" \
-    --board "$BOARD" --url "$BASE/$channel-$ASSET_SUFFIX" --image "$image" --built "$(date +%s)"
-  gh release upload ota "$image" -R "$REPO" --clobber   # the image first: the manifest never names a missing file
+  [ -n "$run" ] || { log "no finished build for $sha: $id not published"; return 0; }
+  [ "${run#* }" = success ] || { log "the build for $sha ended '${run#* }': $id not published"; return 0; }
+
+  mkdir -p "$WORK/download"
+  gh run download "${run% *}" -R "$REPO" -n "$ARTIFACT" -D "$WORK/download"
+  image="$WORK/$id-$BOARD.bin"
+  mv "$WORK/download/firmware.bin" "$image"
+  list_set "$WORK/$LIST" "$id" "${sha:0:8}" "$(date +%s)" "$(stat -c%s "$image")" "$(sha256sum "$image" | cut -d' ' -f1)" "$title"
+  gh release upload ota "$image" -R "$REPO" --clobber   # the image first: the list never names a missing file
   changed=1
 }
 
-sweep
+main() {
+  WORK=$(mktemp -d)
+  trap 'rm -rf "$WORK"' EXIT
+  changed=0
 
-case "$KIND" in
-  develop | pr) publish_channel "$CHANNEL" "$SHA" "$TITLE" ;;
-  sweep) ;;
-  reconcile)
-    # The heads looked at here were pushed long ago: their build finished already, or never ran. One look, no waiting,
-    # so a head without a build cannot use up the job's time.
-    WAIT_TRIES=1
-    head="$(gh api "repos/$REPO/commits/$INTEGRATION_BRANCH" --jq '.sha + " " + (.commit.message | split("\n")[0])')"
-    if [ "$(manifest rev develop)" != "${head:0:8}" ]; then publish_channel develop "${head%% *}" "$INTEGRATION_BRANCH: ${head#* }"; fi
-    prs="$(gh pr list -R "$REPO" --base "$INTEGRATION_BRANCH" --label ota --state open \
-      --json number,headRefOid,title,headRepository,headRepositoryOwner \
-      --jq '.[] | select((.headRepositoryOwner.login + "/" + .headRepository.name | ascii_downcase) == ("'"$REPO"'" | ascii_downcase)) | "\(.number)\t\(.headRefOid)\t\(.title)"')"
-    while IFS=$'\t' read -r n oid title; do
-      [ -n "$n" ] || continue
-      if [ "$(manifest rev "pr-$n")" != "${oid:0:8}" ]; then publish_channel "pr-$n" "$oid" "$title"; fi
-    done <<<"$prs"
-    ;;
-  *) log "unknown KIND $KIND"; exit 1 ;;
-esac
+  gh release view ota -R "$REPO" >/dev/null 2>&1 || gh release create ota -R "$REPO" --prerelease --latest=false \
+    --title "OTA channels" --notes "Signed firmware builds for the Firmware channels screen. Written by CI; do not edit."
+  # Start from an empty list only when the release has none. One that exists but cannot be downloaded stops the run.
+  if [ "$(gh release view ota -R "$REPO" --json assets --jq "[.assets[].name] | index(\"$LIST\") | if . == null then \"no\" else \"yes\" end")" = yes ]; then
+    gh release download ota -R "$REPO" -p "$LIST" -D "$WORK" --clobber
+  else
+    : > "$WORK/$LIST"
+  fi
 
-if [ "$changed" = 0 ]; then log "nothing to publish"; exit 0; fi
+  LIVE=$(open_pull_requests)
+  drop_closed
+  case "$EVENT" in
+    push) publish_channel develop "$SHA" "$BRANCH: $(git -C "$ROOT" log -1 --format=%s)" ;;
+    # Only a pull request that is open and from this repository gets a channel (a closed or fork one is not in $LIVE).
+    pull_request_target) ! grep -qx "pr-$PR" <<<"$LIVE" || publish_channel "pr-$PR" "$SHA" "$TITLE" ;;
+  esac
+  [ "$changed" = 1 ] || { log "nothing to publish"; return 0; }
 
-# The signing key must be the one compiled into the firmware (mirror/ota/OtaKey.h), or no device would accept the result.
-KEY="$WORK/key.pem"
-(umask 077; printf '%s\n' "$OTA_SIGNING_KEY" > "$KEY")
-python3 - "$ROOT/mirror/ota/OtaKey.h" > "$WORK/firmware-pub.der" <<'PY'
-import re, sys
-text = open(sys.argv[1]).read()
-array = text[text.index("kOtaPublicKeyDer[]"):]
-array = array[:array.index("};")]
-sys.stdout.buffer.write(bytes(int(h, 16) for h in re.findall(r"0x([0-9a-fA-F]{2})", array)))
-PY
-openssl ec -in "$KEY" -pubout -outform DER 2>/dev/null | cmp -s - "$WORK/firmware-pub.der" \
-  || { log "OTA_SIGNING_KEY does not match mirror/ota/OtaKey.h: refusing to publish"; exit 1; }
-openssl dgst -sha256 -sign "$KEY" -out "$WORK/channels.json.sig" "$MANIFEST"
-openssl dgst -sha256 -verify <(openssl ec -in "$KEY" -pubout 2>/dev/null) -signature "$WORK/channels.json.sig" "$MANIFEST" >/dev/null
-shred -u "$KEY" 2>/dev/null || rm -f "$KEY"
+  local key="$WORK/key.pem"
+  (umask 077; printf '%s\n' "$OTA_SIGNING_KEY" > "$key")
+  key_matches_firmware "$key" || { log "OTA_SIGNING_KEY does not match mirror/ota/OtaKey.h: refusing to publish"; exit 1; }
+  sign "$key" "$WORK/$LIST"
+  rm -f "$key"
+  gh release upload ota "$WORK/$LIST" "$WORK/$LIST.sig" -R "$REPO" --clobber
+  log "published: $(cut -d' ' -f1 "$WORK/$LIST" | paste -sd' ' -)"
+}
 
-gh release upload ota "$MANIFEST" "$WORK/channels.json.sig" -R "$REPO" --clobber
-log "published: $(manifest ids | paste -sd, - | sed 's/,/, /g')"
+# Run when executed, not when sourced (mirror/scripts/ota/test.sh sources it).
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then main; fi

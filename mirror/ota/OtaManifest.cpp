@@ -2,116 +2,79 @@
 
 #include <algorithm>
 
-#include "ota/MiniJson.h"
-
 namespace mirror::ota {
 namespace {
 
 bool isHex(const std::string& s, size_t minLen, size_t maxLen) {
-  if (s.size() < minLen || s.size() > maxLen) return false;
-  return std::all_of(s.begin(), s.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
+  return s.size() >= minLen && s.size() <= maxLen &&
+         std::all_of(s.begin(), s.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
 }
 
-bool startsWith(const std::string& s, const std::string& prefix) {
-  return !prefix.empty() && s.size() > prefix.size() && s.compare(0, prefix.size(), prefix) == 0;
-}
-
-bool str(const json::Value& o, const char* key, std::string& out) {
-  const json::Value* v = o.get(key);
-  if (!v || v->type != json::Value::Type::String) return false;
-  out = v->s;
+bool isNumber(const std::string& s, uint32_t& out) {
+  if (s.empty() || s.size() > 10 || !std::all_of(s.begin(), s.end(), [](char c) { return c >= '0' && c <= '9'; }))
+    return false;
+  const unsigned long long v = std::stoull(s);
+  if (v == 0 || v > 0xFFFFFFFFull) return false;
+  out = static_cast<uint32_t>(v);
   return true;
 }
 
-bool num(const json::Value& o, const char* key, uint32_t& out) {
-  const json::Value* v = o.get(key);
-  if (!v || v->type != json::Value::Type::Int || v->i < 0 || v->i > 0xFFFFFFFFLL) return false;
-  out = static_cast<uint32_t>(v->i);
+// Takes the next space-separated word of `line` starting at `pos`.
+bool word(const std::string& line, size_t& pos, std::string& out) {
+  const size_t end = line.find(' ', pos);
+  if (end == std::string::npos || end == pos) return false;
+  out = line.substr(pos, end - pos);
+  pos = end + 1;
   return true;
 }
 
-bool readChannel(const json::Value& o, Channel& c) {
-  return o.type == json::Value::Type::Object && str(o, "id", c.id) && str(o, "title", c.title) &&
-         str(o, "rev", c.rev) && str(o, "board", c.board) && str(o, "url", c.url) && str(o, "sha256", c.sha256) &&
-         num(o, "size", c.size) && num(o, "built", c.built);
+bool readChannel(const std::string& line, Channel& c) {
+  size_t pos = 0;
+  std::string built, size;
+  if (!word(line, pos, c.id) || !word(line, pos, c.rev) || !word(line, pos, built) || !word(line, pos, size) ||
+      !word(line, pos, c.sha256))
+    return false;
+  c.title = line.substr(pos);
+  // A title is printable ASCII or UTF-8 text on one line.
+  const bool titleOk = !c.title.empty() && c.title.size() <= 96 && c.title.front() != ' ' &&
+                       std::all_of(c.title.begin(), c.title.end(),
+                                   [](char ch) { return static_cast<unsigned char>(ch) >= 0x20 && ch != 0x7F; });
+  return titleOk && isChannelId(c.id) && isHex(c.rev, 7, 12) && isHex(c.sha256, 64, 64) && isNumber(built, c.built) &&
+         isNumber(size, c.size) && c.size >= 512 * 1024;
 }
-
-// "pr-12" -> 12; develop sorts before every PR.
-long order(const std::string& id) { return id == "develop" ? -1 : std::stol(id.substr(3)); }
 
 }  // namespace
 
 bool isChannelId(const std::string& id) {
   if (id == "develop") return true;
-  if (id.size() < 4 || id.size() > 9 || id.compare(0, 3, "pr-") != 0) return false;
-  return std::all_of(id.begin() + 3, id.end(), [](char c) { return c >= '0' && c <= '9'; }) && id[3] != '0';
-}
-
-bool channelAllowed(const Channel& c, const Policy& p) {
-  if (!isChannelId(c.id) || c.board != p.board) return false;
-  if (!startsWith(c.url, p.urlPrefix)) return false;
-  const std::string name = c.url.substr(p.urlPrefix.size());
-  // A file name inside the release, nothing else: no path, query, fragment or escape that could point elsewhere.
-  if (name.size() < 5 || name.compare(name.size() - 4, 4, ".bin") != 0) return false;
-  if (!std::all_of(name.begin(), name.end(), [](char ch) {
-        return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' ||
-               ch == '_' || ch == '.';
-      }))
-    return false;
-  if (name.find("..") != std::string::npos) return false;
-  if (!isHex(c.sha256, 64, 64) || !isHex(c.rev, 7, 12) || c.built == 0) return false;
-  if (c.size < p.minImageBytes || (p.maxImageBytes != 0 && c.size > p.maxImageBytes)) return false;
-  return !c.title.empty();
+  if (id.size() < 4 || id.size() > 9 || id.compare(0, 3, "pr-") != 0 || id[3] == '0') return false;
+  return std::all_of(id.begin() + 3, id.end(), [](char c) { return c >= '0' && c <= '9'; });
 }
 
 bool differsFromRunning(const Channel& c, const std::string& runningRev) {
-  if (runningRev.empty() || runningRev.back() == '+') return true;
-  return c.rev != runningRev;
+  return runningRev.empty() || runningRev.back() == '+' || c.rev != runningRev;
 }
 
 Trust openManifest(const std::string& text, const uint8_t* sig, size_t sigLen, const SignatureVerifier& verifier,
-                   const Policy& policy, Manifest& out) {
-  out = Manifest{};
-  if (text.empty() || text.size() > json::kMaxDocument || !sig || sigLen == 0 ||
+                   std::vector<Channel>& out) {
+  out.clear();
+  if (text.empty() || text.size() > kMaxManifestBytes || !sig || sigLen == 0 ||
       !verifier.verify(reinterpret_cast<const uint8_t*>(text.data()), text.size(), sig, sigLen))
     return Trust::BadSignature;  // nothing below runs on bytes that are not ours
 
-  json::Value doc;
-  uint32_t version = 0;
-  if (!json::parse(text, doc) || doc.type != json::Value::Type::Object || !num(doc, "v", version) || version != 1 ||
-      !num(doc, "issued", out.issued) || out.issued == 0)
-    return Trust::BadDocument;
-  const json::Value* list = doc.get("channels");
-  if (!list || list->type != json::Value::Type::Array) return Trust::BadDocument;
-  if (out.issued < policy.lastIssued) return Trust::Stale;
-
-  for (const json::Value& item : list->items) {
+  std::vector<Channel> channels;
+  for (size_t pos = 0; pos < text.size();) {
+    size_t end = text.find('\n', pos);
+    if (end == std::string::npos) return Trust::BadFormat;  // every line, the last one too, ends in a newline
     Channel c;
-    if (!readChannel(item, c)) return (out = Manifest{}, Trust::BadDocument);
-    if (!channelAllowed(c, policy)) continue;
-    if (std::any_of(out.channels.begin(), out.channels.end(), [&](const Channel& o) { return o.id == c.id; })) continue;
-    out.channels.push_back(std::move(c));
+    if (channels.size() == kMaxChannels || !readChannel(text.substr(pos, end - pos), c)) return Trust::BadFormat;
+    if (std::any_of(channels.begin(), channels.end(), [&](const Channel& o) { return o.id == c.id; }))
+      return Trust::BadFormat;
+    channels.push_back(std::move(c));
+    pos = end + 1;
   }
-  std::stable_sort(out.channels.begin(), out.channels.end(), [](const Channel& a, const Channel& b) {
-    const long x = order(a.id), y = order(b.id);
-    return x == -1 || y == -1 ? x < y : x > y;  // develop first, then newest PR first
-  });
-  if (out.channels.size() > kMaxChannels) out.channels.resize(kMaxChannels);
+  out = std::move(channels);
   return Trust::Ok;
-}
-
-const char* trustName(Trust t) {
-  switch (t) {
-    case Trust::Ok:
-      return "OK";
-    case Trust::BadSignature:
-      return "BAD_SIGNATURE";
-    case Trust::BadDocument:
-      return "BAD_DOCUMENT";
-    case Trust::Stale:
-      return "STALE";
-  }
-  return "?";
 }
 
 }  // namespace mirror::ota
