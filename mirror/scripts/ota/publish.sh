@@ -60,20 +60,28 @@ sign() {
 
 # The channels whose pull request is open and from this repository: "pr-<number>" per line.
 open_pull_requests() {
-  gh pr list -R "$REPO" --base "$BRANCH" --state open --json number,isCrossRepository \
+  gh pr list -R "$REPO" --base "$BRANCH" --state open --limit 500 --json number,isCrossRepository \
     --jq '.[] | select(.isCrossRepository | not) | "pr-\(.number)"'
 }
 
 # Removes the channels of pull requests that are no longer open ones of this repository ($LIVE); the list is checked on every
-# run, so a missed event heals.
+# run, so a missed event heals. Their images are deleted later, by prune_images, once the new list is out.
 drop_closed() {
   local id
   for id in $(grep -o '^pr-[0-9]*' "$WORK/$LIST" || true); do
     grep -qx "$id" <<<"$LIVE" && continue
     log "removing $id (closed)"
     list_drop "$WORK/$LIST" "$id"
-    gh release delete-asset ota "$id-$BOARD.bin" -R "$REPO" -y 2>/dev/null || true
     changed=1
+  done
+}
+
+# Deletes the release's images that the published list no longer names (closed pull requests, channels pushed out by the
+# limit). Done last, so the list that devices can still see never names a missing file.
+prune_images() {
+  local name
+  for name in $(gh release view ota -R "$REPO" --json assets --jq ".assets[].name | select(endswith(\"-$BOARD.bin\"))"); do
+    grep -q "^${name%-"$BOARD".bin} " "$WORK/$LIST" || gh release delete-asset ota "$name" -R "$REPO" -y
   done
 }
 
@@ -129,6 +137,7 @@ main() {
   sign "$key" "$WORK/$LIST"
   rm -f "$key"
   gh release upload ota "$WORK/$LIST" "$WORK/$LIST.sig" -R "$REPO" --clobber
+  prune_images
   log "published: $(cut -d' ' -f1 "$WORK/$LIST" | paste -sd' ' -)"
 }
 

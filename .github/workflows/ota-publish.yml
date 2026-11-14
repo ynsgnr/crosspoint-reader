@@ -10,6 +10,8 @@ on:
   pull_request_target:
     branches: [develop-retink]
     types: [opened, reopened, synchronize, closed]
+    # Keep these paths in step with mirror.yml: a pull request without a build would only make this run wait for nothing.
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
   push:
     branches: [develop-retink]
     paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']

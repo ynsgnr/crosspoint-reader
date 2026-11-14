@@ -55,4 +55,8 @@ key_matches_firmware "$T/key.pem" "$T/OtaKey.h" || fail "the key does not match 
 openssl ecparam -name prime256v1 -genkey -noout -out "$T/other.pem"
 key_matches_firmware "$T/other.pem" "$T/OtaKey.h" && fail "another key was accepted"
 
+# --- the names the firmware and CI both use ---
+grep -q "CROSSPOINT_BOARD_NAME \"$BOARD\"" "$ROOT/src/network/FirmwareBoardTag.cpp" || fail "BOARD=$BOARD is not a board name of the firmware"
+grep -q "kReleaseBase\[\] = \"https://github.com/ynsgnr/crosspoint-reader/releases/download/ota/\"" "$ROOT/mirror/ota/OtaConfig.h" || fail "the release address in OtaConfig.h changed: keep CI and the firmware in step"
+
 echo "ota scripts: ok"
