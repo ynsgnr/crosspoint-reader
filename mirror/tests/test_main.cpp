@@ -18,6 +18,7 @@
 #include "sim/Transcript.h"
 #include "templates/chat/ChatRenderer.h"
 #include "templates/list/ListRenderer.h"
+#include "tests/ota_tests.h"
 
 using namespace mirror;
 
@@ -862,6 +863,7 @@ int main() {
   testViewStackAndBack();
   testBandHintFollowsTheStack();
   testBackUnavailableFromThePhone();
+  g_fail += runOtaTests(g_checks);
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
