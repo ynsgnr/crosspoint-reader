@@ -10,7 +10,7 @@ class MoreMenuActivity final : public UiListActivity {
   MoreMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, int libraryEntry, bool opdsServers);
 
  private:
-  enum class Row { FileBrowser, FileTransfer, Library, Settings };
+  enum class Row { FileBrowser, FileTransfer, Library, Settings, Firmware };
 
   int listCount() const override { return rowCount_; }
   void buildScreen(UiScreen& screen) override;
@@ -18,7 +18,7 @@ class MoreMenuActivity final : public UiListActivity {
   void onBackButton() override { activityManager.goHome(); }
   const char* headerTitle() const override { return "More"; }
 
-  static constexpr int kMaxRows = 4;
+  static constexpr int kMaxRows = 5;
   const bool plugins_;
   const bool opdsServers_;
   int rowCount_ = 0;

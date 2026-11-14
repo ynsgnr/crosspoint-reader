@@ -12,7 +12,7 @@ Import("env")  # noqa: F821  # type: ignore[name-defined]
 def mirror_sources(target, source, env, for_signature):
     if env.subst("$ARDUINO_LIB_COMPILE_FLAG") == "Build":
         return ""
-    return "+<../mirror/core/> +<../mirror/device/> +<../mirror/templates/>"
+    return "+<../mirror/core/> +<../mirror/device/> +<../mirror/templates/> +<../mirror/ota/>"
 
 
 env["MIRROR_SOURCES"] = mirror_sources  # noqa: F821
@@ -36,8 +36,13 @@ def _git_rev():
         except (OSError, KeyError, ValueError):
             pass
     try:
-        rev = subprocess.check_output(["git", "rev-parse", "--short=8", "HEAD"], cwd=root, text=True).strip()
-        dirty = subprocess.check_output(["git", "status", "--porcelain"], cwd=root, text=True).strip() != ""
+        # The first 8 characters of the full hash, not --short=8 (which grows when the abbreviation is ambiguous): the OTA
+        # channel manifest names the build by exactly these 8 characters (mirror/scripts/ota/publish.sh).
+        rev = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()[:8]
+        # CI checks out a clean tree; files its earlier steps left behind must not make the build look modified.
+        untracked = "no" if os.environ.get("GITHUB_ACTIONS") == "true" else "normal"
+        status = ["git", "status", "--porcelain", "--untracked-files=" + untracked]
+        dirty = subprocess.check_output(status, cwd=root, text=True).strip() != ""
         return rev + ("+" if dirty else "")
     except (OSError, subprocess.CalledProcessError):
         return "unknown"

@@ -1,11 +1,12 @@
 # Mirror feature checks (new file; see mirror/MIRROR_CHANGES.md). Independent of the upstream workflows.
 name: mirror
 
-# A branch with an open pull request builds once, on the pull request: push only builds develop.
+# A branch with an open pull request builds once, on the pull request: push only builds develop and develop-retink
+# (develop-retink is the "develop" firmware channel, see .github/workflows/ota-publish.yml).
 # The X4 (ESP32-C3) image is only built on demand (Actions > mirror > Run workflow).
 on:
   push:
-    branches: [develop]
+    branches: [develop, develop-retink]
     paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
   pull_request:
     paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
@@ -36,6 +37,16 @@ jobs:
         with:
           name: mirror-simulator-frames
           path: sim-out
+
+  ota-scripts:
+    name: OTA scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Channel manifest tool, fixture and signature round trip
+        run: python3 mirror/scripts/ota/test_channels.py
+      - name: Shell syntax of the publisher
+        run: bash -n mirror/scripts/ota/publish.sh
 
   generated-files:
     name: Generated files untouched
@@ -116,6 +127,18 @@ jobs:
             echo "## ${{ matrix.env }} firmware build stats"
             grep -E "(RAM|Flash):\s" pio.log | sed 's/^/- /'
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # The OTA channel manifest names this build by the first 8 characters of its commit, and the device's automatic
+      # fallback only acts on an image that reports the same revision (mirror/ota/BootGuard.h). Fail the build, and with it
+      # the publishing, if they ever differ.
+      - name: The image reports the commit it was built from
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          sha="${PR_HEAD_SHA:-$GITHUB_SHA}"
+          grep -qx "#define MIRROR_GIT_REV \"${sha:0:8}\"" mirror/device/BuildInfo.h \
+            || { echo "::error::MIRROR_GIT_REV is not ${sha:0:8}:"; cat mirror/device/BuildInfo.h; exit 1; }
 
       - name: Upload firmware image
         uses: actions/upload-artifact@v6
