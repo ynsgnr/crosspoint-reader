@@ -28,7 +28,6 @@ Each line: what happened, what to do. Details are in `FINDINGS.md`.
 * **Prefer a structural signal over a position fraction.** WhatsApp's delivery tick marks outgoing rows; wide bubbles start left of any cutoff.
 * **Clock times need a day.** Read the date separators ("Today", weekday, date); the rows above the first separator belong to the day before it.
 * **Capture first, then fix:** export a capture from the phone and run the real parser on it (`parserDump`) before changing a parser.
-* **A cleanup that triggers a state change must not overwrite the state that caused it** (NEEDS_REPAIR was erased by the disconnect it started). Read failures before treating a state as final:** a cleanup that triggers a state change must not overwrite the state that caused it (NEEDS_REPAIR was erased by the disconnect it started).
 * **Mirror only the message composer, never "any editable field":** search boxes and login fields are editable too.
 
 ## Debugging and process
