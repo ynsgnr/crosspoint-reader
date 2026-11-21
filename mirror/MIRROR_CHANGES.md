@@ -5,7 +5,7 @@ same as upstream: the hooks below are `if (MIRROR_ENABLED)` / `#if MIRROR_ENABLE
 the flag) and no mirror header is included, so non-mirror environments need no extra include path.
 Only the `mirror` and `x4pro-mirror` PlatformIO environments set the flag.
 
-To check the list is complete after a rebase: `git diff --stat upstream/develop -- . ':!mirror'` must show only the files below.
+To check the list is complete after a rebase: `git diff --stat upstream/develop -- . ':!mirror'` must show only the files named in the tables below and in the list of later features.
 
 | Upstream file | Change | Why |
 | --- | --- | --- |
@@ -16,8 +16,20 @@ To check the list is complete after a rebase: `git diff --stat upstream/develop 
 
 Outside `mirror/` and the table above: `.github/workflows/ota-publish.yml` (new: publishes the signed OTA channels with `mirror/scripts/ota/publish.sh`, see `mirror/README.md`), `.github/workflows/mirror.yml` (new: host tests, manifest check, spec sync, the X4 Pro mirror build; the X4 build on manual dispatch; builds `develop-retink` pushes, which feed the `develop` OTA channel; the `OTA scripts` job), `ci.yml` (the fork builds only the X4 Pro and cancels superseded runs) and `pr-firmware-links.yml` (expects only `firmware-x4pro.bin`). `release.yml` and `release_candidate.yml` still build every board on purpose.
 
-Not touched: `ActivityManager`, translations (`lib/I18n`: the menu label "Mirror" is a plain string, not translated),
-`partitions*.csv`, `src/main.cpp`, `lib/BlePageTurner`, the SDK submodule, any `sdkconfig`.
+Later features of the fork touch more upstream files, outside `mirror/` and `macro/` (each is small and guarded where it can be):
+
+| Upstream file | Feature | Change |
+| --- | --- | --- |
+| `src/main.cpp` | Wake on Charge, Macro auto-open, background sync | `powerManager.setWakeOnCharge(...)` at boot and before sleep, a `Charging` wake counts as a sleep wake, `restoreSerialJtagIfOtgLeftOn()`, the sleep image joins Wi-Fi through `opdssync::joinWifi()` and is only fetched when due (`trmnl::due`), `armSyncWake()` comments |
+| `lib/hal/HalDisplay.cpp`, `HalGPIO.cpp`, `HalGPIO.h`, `HalPowerManager.cpp`, `HalPowerManager.h` | Wake on Charge (X4 Pro) | charging wake reason, wake-on-charge power setting |
+| `lib/I18n/translations/english.yaml`, `src/CrossPointSettings.h`, `src/SettingsList.cpp`, `USER_GUIDE.md` | Wake on Charge | the setting and its label (other languages fall back to English) |
+| `lib/Trmnl/TrmnlProtocol.*`, `src/network/TrmnlClient.*`, `test/trmnl/TrmnlProtocolTest.cpp` | Sleep image refresh | refresh only when due, record failures |
+| `src/network/OpdsAutoSync.cpp` | Background Wi-Fi | `joinWifi()` for timer wakes: the last connected network first, a scan only when that fails, then any other saved network in range |
+| `src/platform/UsbSerialJtagHandoff.*` | Macro | the USB serial/JTAG hand-off used by Macro's auto-open |
+| `.github/workflows/*`, `.gitignore` | CI and OTA | listed above |
+
+Still not touched: `ActivityManager`, `partitions*.csv`, `lib/BlePageTurner`, the SDK submodule, any `sdkconfig`. Translations: only `english.yaml` (Wake on Charge); the Mirror menu label is a plain string.
+The check `git diff --stat upstream/develop -- . ':!mirror' ':!macro'` shows these files, and the earlier tables plus this one must name every one of them.
 
 ## BLE stack: what the build already had and what the mirror changes
 
