@@ -176,10 +176,8 @@ bool joinSavedWifi() {
   if (const auto credential = WIFI_STORE.findCredential(last)) {
     if (tryJoin(*credential)) return true;  // the usual case: no scan
   }
-  for (const auto& credential : wifiCandidates(last)) {
-    if (tryJoin(credential)) return true;
-  }
-  return false;
+  const auto others = wifiCandidates(last);
+  return std::any_of(others.begin(), others.end(), tryJoin);  // stops at the first network that joins
 }
 
 void writeResultLog(const Summary& summary) {
