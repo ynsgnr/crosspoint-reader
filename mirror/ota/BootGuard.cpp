@@ -46,8 +46,8 @@ void endTrial(BootGuard& g) {
   g.tries = 0;
 }
 
-BootAction onBootGuard(BootGuard& g, const std::string& runningRev) {
-  if (!g.pending) return BootAction::Nothing;
+BootAction onBootGuard(BootGuard& g, const std::string& runningRev, bool timerWake) {
+  if (!g.pending || timerWake) return BootAction::Nothing;
   if (g.rev != runningRev) {  // not the build that was installed: a record must never act on another image
     endTrial(g);
     return BootAction::Stale;

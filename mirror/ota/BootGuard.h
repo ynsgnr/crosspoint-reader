@@ -37,8 +37,10 @@ void armGuard(BootGuard& g, uint8_t prevSlot, const std::string& rev);  // befor
 // The trial is over: the build confirmed, the rollback happened, the flash failed, or there is nothing to go back to.
 void endTrial(BootGuard& g);
 // `runningRev` is the revision this firmware was built from. Counts the try. A Rollback decision changes nothing by
-// itself, so a boot that cannot finish the rollback decides again.
-BootAction onBootGuard(BootGuard& g, const std::string& runningRev);
+// itself, so a boot that cannot finish the rollback decides again. A timer wake (a background sync that goes back to
+// sleep within seconds, long before kConfirmAfterMs) is not a try and decides nothing: only a boot the user could see
+// counts.
+BootAction onBootGuard(BootGuard& g, const std::string& runningRev, bool timerWake = false);
 bool guardConfirmDue(const BootGuard& g, uint32_t uptimeMs);
 // The switch back failed. Counts the attempt and ends the trial after kMaxRollbackAttempts, so a boot loop cannot erase
 // the otadata sector on every boot for ever. True when the trial is over.
