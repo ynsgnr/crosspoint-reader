@@ -9,6 +9,7 @@
 
 #include <algorithm>
 
+#include "core/LinkGuard.h"
 #include "device/MirrorSettings.h"
 #include "protocol_gen.h"
 
@@ -232,6 +233,15 @@ void MirrorBle::service() {
                               500);  // 15-30 ms so typed letters show quickly; 5 s supervision timeout
     server_->setDataLen(handle, 251);
   }
+  // A central that does not secure the link in time is dropped, so it cannot hold the only slot.
+  if (linkUp_ && !connected_ && server_) {
+    const bool pairing = pairingOpen() || pairingLatched_ || passkey_.load() >= 0;
+    if (LinkGuard::expired(millis(), linkSinceMs_, false, pairing)) {
+      LOG_INF("MIRROR", "link not secured in time: dropped");
+      server_->disconnect(connHandle_.load());
+      linkSinceMs_ = millis();  // the disconnect callback clears linkUp_; do not repeat the request every pass
+    }
+  }
   if (pairingUntilMs_ != 0 && !pairingOpen()) {
     LOG_INF("MIRROR", "pairing window closed");
     pairingUntilMs_ = 0;  // window expired
@@ -310,6 +320,7 @@ bool MirrorBle::onConnected(const NimBLEConnInfo& link) {
     overflow_ = false;
   }
   connHandle_ = link.getConnHandle();
+  linkSinceMs_ = millis();
   mtu_ = 23;
   passkey_ = -1;
   // The phone secures the link itself: it starts encryption for a bonded device and pairing when its app asks for it.

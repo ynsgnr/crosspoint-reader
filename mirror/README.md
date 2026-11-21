@@ -66,6 +66,8 @@ Up/Down (or the page buttons) scroll one message, holding keeps scrolling (see S
   (`onPasskeyDisplay` disconnects). Pairing a new phone deletes the old bond (one phone at a time). Nothing is advertised without a bond or an open window.
 * **Privacy.** The public address is used: advertising with the host-based private address failed on the X4 Pro (HCI error 0x12, serial log), so the device can be recognised by its address. It advertises only while the pairing window is open or a bond exists. The advertisement holds the mirror service UUID plus the HID UUID; the generic name `E-Ink Reader` is in the scan response.
   No content, serial or per-device data. (The mirror service UUID is a project constant; the Companion Device Manager filters on it.)
+* **App-level confirmation.** After the bond the phone sends a random 16-bit code (`pair_code`), the device shows it ("Confirm code: 04711") and the user types it into the app; only then does the phone send chat data, and nothing the device sends is acted on before. A device that does not advertise the `pairing_code` feature gets nothing. The confirmation is stored per bond on the phone and cleared when the bond is lost or a new pairing is made.
+* **Unsecured links are dropped.** A central that has not become encrypted and authenticated within 5 s (60 s while a pairing is in progress) is disconnected (`core/LinkGuard.h`), so a stranger cannot hold the only slot.
 * **Migration.** `sec_epoch` in NVS (`kSecurityEpoch`, now 4: the keyboard became always on, which changes the GATT database); bonds made under an older model are deleted at the next start. The app does the same (`DeviceBond.SECURITY_EPOCH`).
 
 ## Controls

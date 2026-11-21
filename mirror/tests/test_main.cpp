@@ -11,6 +11,7 @@
 #include "core/Crc16.h"
 #include "core/Envelope.h"
 #include "core/Frame.h"
+#include "core/LinkGuard.h"
 #include "core/RefreshPolicy.h"
 #include "core/Session.h"
 #include "core/Utf8.h"
@@ -833,8 +834,43 @@ static void testBackUnavailableFromThePhone() {
   CHECK(d.session.active()->templateId() == 2);  // the screen itself is unchanged
 }
 
+static void testLinkGuard() {
+  using G = LinkGuard;
+  CHECK(!G::expired(1000 + G::kSecureWithinMs, 1000, false, false));  // exactly at the limit: still allowed
+  CHECK(G::expired(1001 + G::kSecureWithinMs, 1000, false, false));   // a silent stranger is dropped
+  CHECK(!G::expired(1001 + G::kSecureWithinMs, 1000, false, true));   // a pairing gets time to type the passkey
+  CHECK(G::expired(1001 + G::kPairingWithinMs, 1000, false, true));   // but not forever
+  CHECK(!G::expired(1000000, 1000, true, false));                     // a secure link is never dropped by the guard
+  CHECK(!G::expired(100, 0xFFFFFF00u, false, false));                 // millis() wrapped: 356 ms since the connect
+  CHECK(G::expired(6000, 0xFFFFFF00u, false, false));
+}
+
+static void testPairingCodeFromThePhone() {
+  Device d;
+  sim::SimGfx g(480, 800);
+  auto caps = d.session.capabilities(g, "CrossPoint");
+  Reader r(caps.data(), caps.size());
+  gen::Capabilities c;
+  CHECK(gen::Capabilities::decode(r, c) &&
+        (c.features & gen::kFeaturePairingCode));  // the phone only confirms what shows it
+  CHECK(d.session.pairCode() == -1);
+  auto command = [&](uint8_t cmd, uint8_t a, uint8_t b, uint16_t seq) {
+    Writer w;
+    gen::ControlCommand{cmd, a, b}.encode(w);
+    d.send(gen::kFlagCommand, seq, 0, w.take(), static_cast<uint8_t>(gen::kControlTemplateId), 0);
+  };
+  command(gen::kCmdPairCode, 0x12, 0x67, 1);  // 0x1267 = 4711
+  CHECK(d.session.pairCode() == 4711);
+  command(gen::kCmdPairCode, 0xFF, 0xFF, 2);  // the largest code still shows as five digits' worth of value
+  CHECK(d.session.pairCode() == 65535);
+  command(gen::kCmdPairOk, 0, 0, 3);
+  CHECK(d.session.pairCode() == -1);
+}
+
 int main() {
   testCrcAndWire();
+  testLinkGuard();
+  testPairingCodeFromThePhone();
   testEnvelopeStream();
   testRefreshPolicy();
   testWrap();

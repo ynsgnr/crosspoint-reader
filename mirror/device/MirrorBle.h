@@ -75,6 +75,7 @@ class MirrorBle {
   std::atomic<bool> pairingLatched_{false};  // a passkey was issued: the pairing may finish after the window closes
   std::atomic<uint32_t> pairingUntilMs_{0};
   bool minimalAdvertisement_ = false;      // fell back to the smallest advertisement after a failed start
+  std::atomic<uint32_t> linkSinceMs_{0};   // when the current link came up (see LinkGuard)
   std::atomic<bool> linkUp_{false};        // a central is connected, secure or not
   bool advConnectable_ = true;             // the running advertisement accepts connections
   std::atomic<bool> tunePending_{false};   // connection parameters are due once the link is secure
