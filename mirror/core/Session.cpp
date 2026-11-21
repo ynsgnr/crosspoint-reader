@@ -99,8 +99,12 @@ void Session::handleControl(const Envelope& e, bool& changed) {
   if (e.has(gen::kFlagCommand)) {  // phone -> device; commands this firmware does not know are ignored
     Reader r(e.payload.data(), e.payload.size());
     gen::ControlCommand c;
-    if (gen::ControlCommand::decode(r, c) && r.atEnd() && c.command == gen::kCmdBackUnavailable)
-      backUnavailable_ = true;
+    if (!gen::ControlCommand::decode(r, c) || !r.atEnd()) return;
+    if (c.command == gen::kCmdBackUnavailable) backUnavailable_ = true;
+    if (c.command == gen::kCmdPairCode || c.command == gen::kCmdPairOk) {
+      pairCode_ = c.command == gen::kCmdPairCode ? (c.arg << 8) | c.arg2 : -1;
+      changed = true;  // the status screen shows or hides the code
+    }
     return;
   }
   if (!e.has(gen::kFlagStatus)) return;
@@ -155,7 +159,7 @@ std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceNam
   gen::Capabilities c;
   c.protocol_version = gen::kProtocolVersion;
   c.max_payload = maxPayload_;
-  c.features = gen::kFeaturePhoneStatus | extraFeatures;
+  c.features = gen::kFeaturePhoneStatus | gen::kFeaturePairingCode | extraFeatures;
   c.screen_width = static_cast<uint16_t>(gfx.width());
   c.screen_height = static_cast<uint16_t>(gfx.height());
   c.device_name = deviceName;

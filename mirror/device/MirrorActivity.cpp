@@ -219,6 +219,7 @@ void MirrorActivity::runAction(int action) {
 }
 
 bool MirrorActivity::loopStatus() {
+  if (session_->pairCode() >= 0) return false;   // the confirmation code is on screen: nothing to press but Back
   if (ble_.pairingPasskey() >= 0) return false;  // the code is on screen instead of the buttons: nothing to press
   using Btn = MappedInputManager::Button;
   buildActions();
@@ -310,6 +311,12 @@ void MirrorActivity::drawStatus() {
     std::snprintf(buf, sizeof buf, "Pairing code: %06d", static_cast<int>(code));
     text.line(buf, true);
     text.line("Type it on your phone.");
+  } else if (const int32_t pair = ble_.connected() ? session_->pairCode() : -1; pair >= 0) {
+    char buf[40];
+    std::snprintf(buf, sizeof buf, "Confirm code: %05d", static_cast<int>(pair));
+    text.line(buf, true);
+    text.line("Type it in the Retink app.");
+    text.line("Not your phone? Leave Mirror.");
   } else {
     const auto& phone = session_->phoneStatus();
     if (!ble_.connected()) {
