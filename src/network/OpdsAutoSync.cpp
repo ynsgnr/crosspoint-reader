@@ -127,31 +127,39 @@ class DeviceBackend final : public Backend {
   const std::string ledgerFile;
 };
 
-// Saved networks in the order to try: those in range (strongest first), the last connected one ahead of the rest.
-// Only the last connected network used to be tried, so one visit to another network (phone hotspot, office) left
-// every later background sync failing at home. Nothing in range from the scan: fall back to the last connected one.
-std::vector<WifiCredential> wifiCandidates() {
-  const std::string last = WIFI_STORE.getLastConnectedSsid();
+// Saved networks in range other than `last`, strongest first. Only the last connected network used to be tried, so one
+// visit to another network (phone hotspot, office) left every later background sync failing at home.
+std::vector<WifiCredential> wifiCandidates(const std::string& last) {
   std::vector<WifiCredential> candidates;
   const int found = WiFi.scanNetworks(false, true);  // blocking; hidden networks are not needed
   if (found > 0) {
     std::vector<std::pair<int, WifiCredential>> inRange;
     for (int i = 0; i < found; i++) {
       const auto credential = WIFI_STORE.findCredential(WiFi.SSID(i).c_str());
-      if (!credential) continue;
+      if (!credential || credential->ssid == last) continue;
       const bool seen = std::any_of(inRange.begin(), inRange.end(),
                                     [&credential](const auto& entry) { return entry.second.ssid == credential->ssid; });
-      if (!seen) inRange.emplace_back(WiFi.RSSI(i) + (credential->ssid == last ? 1000 : 0), *credential);
+      if (!seen) inRange.emplace_back(WiFi.RSSI(i), *credential);
     }
     std::sort(inRange.begin(), inRange.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
     std::transform(inRange.begin(), inRange.end(), std::back_inserter(candidates),
                    [](auto& entry) { return std::move(entry.second); });
   }
   WiFi.scanDelete();
-  if (candidates.empty()) {
-    if (const auto credential = WIFI_STORE.findCredential(last)) candidates.push_back(*credential);
-  }
   return candidates;
+}
+
+bool tryJoin(const WifiCredential& credential) {
+  WiFi.begin(credential.ssid.c_str(), credential.password.c_str());
+  const unsigned long deadlineMs = millis() + WIFI_TIMEOUT_MS;
+  while (WiFi.status() != WL_CONNECTED && millis() < deadlineMs) delay(100);
+  if (WiFi.status() == WL_CONNECTED) {
+    WIFI_STORE.setLastConnectedSsid(credential.ssid);  // saves only when it changed
+    return true;
+  }
+  WiFi.disconnect(true, true);
+  delay(100);
+  return false;
 }
 
 bool joinSavedWifi() {
@@ -164,16 +172,12 @@ bool joinSavedWifi() {
   delay(100);
   WiFi.setScanMethod(WIFI_ALL_CHANNEL_SCAN);
   WiFi.setSortMethod(WIFI_CONNECT_AP_BY_SIGNAL);
-  for (const auto& credential : wifiCandidates()) {
-    WiFi.begin(credential.ssid.c_str(), credential.password.c_str());
-    const unsigned long deadlineMs = millis() + WIFI_TIMEOUT_MS;
-    while (WiFi.status() != WL_CONNECTED && millis() < deadlineMs) delay(100);
-    if (WiFi.status() == WL_CONNECTED) {
-      WIFI_STORE.setLastConnectedSsid(credential.ssid);  // saves only when it changed
-      return true;
-    }
-    WiFi.disconnect(true, true);
-    delay(100);
+  const std::string last = WIFI_STORE.getLastConnectedSsid();
+  if (const auto credential = WIFI_STORE.findCredential(last)) {
+    if (tryJoin(*credential)) return true;  // the usual case: no scan
+  }
+  for (const auto& credential : wifiCandidates(last)) {
+    if (tryJoin(credential)) return true;
   }
   return false;
 }
