@@ -158,4 +158,4 @@ See `MIRROR_CHANGES.md`.
 
 CI: the `mirror` workflow builds `x4pro-macro` (artifact `firmware-x4pro-mirror.bin`) for PRs that touch `mirror/`, `platformio.ini` or the Home files.
 
-Wi-Fi: background syncs (TRMNL sleep image, OPDS) join any saved network in range, last connected first.
+Wi-Fi: background syncs (TRMNL sleep image, OPDS) try the last connected network first (no scan) and scan for the other saved networks only when that fails.
