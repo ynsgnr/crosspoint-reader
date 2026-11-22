@@ -18,6 +18,7 @@ inline constexpr uint32_t kMagic = 167;
 inline constexpr uint32_t kHeaderSize = 11;
 inline constexpr uint32_t kCrcSize = 2;
 inline constexpr uint32_t kControlTemplateId = 0;
+inline constexpr uint32_t kSyncSchema = 16;
 inline constexpr uint32_t kDefaultMtu = 23;
 inline constexpr uint32_t kRequestedMtu = 247;
 inline constexpr uint8_t kFlagFull = 0x01;
@@ -43,11 +44,66 @@ inline constexpr uint8_t kCmdPairCode = 8;
 inline constexpr uint8_t kCmdPairOk = 9;
 inline constexpr uint8_t kFeaturePhoneStatus = 1;
 inline constexpr uint8_t kFeatureHidKeyboard = 2;
+inline constexpr uint8_t kFeatureWifiSync = 8;
 inline constexpr uint8_t kFeaturePairingCode = 4;
+inline constexpr uint8_t kSyncRequestStart = 1;
+inline constexpr uint8_t kSyncRequestDone = 2;
+inline constexpr uint8_t kSyncOfferReady = 1;
+inline constexpr uint8_t kSyncOfferRefused = 2;
+inline constexpr uint8_t kSyncOfferStopped = 3;
+inline constexpr uint8_t kSyncRefusedDisabled = 1;
+inline constexpr uint8_t kSyncRefusedNoPermission = 2;
+inline constexpr uint8_t kSyncRefusedNoCellular = 3;
+inline constexpr uint8_t kSyncRefusedHotspotFailed = 4;
+inline constexpr uint8_t kSyncRefusedBusy = 5;
 inline constexpr const char* kUuidService = "6d1a0001-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidData = "6d1a0002-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidEvent = "6d1a0003-7e1c-4f3b-9a53-5c0b2d9a11e0";
 inline constexpr const char* kUuidCaps = "6d1a0004-7e1c-4f3b-9a53-5c0b2d9a11e0";
+
+struct SyncRequest {
+  uint8_t kind = 0;
+
+  void encode(Writer& w) const {
+    w.writeU8(kind);
+  }
+  static bool decode(Reader& r, SyncRequest& out) {
+    out.kind = r.readU8();
+    return r.ok();
+  }
+  bool operator==(const SyncRequest&) const = default;
+};
+
+struct SyncOffer {
+  uint8_t kind = 0;
+  uint8_t code = 0;
+  std::string ssid;
+  std::string passphrase;
+  std::string proxy_host;
+  uint16_t proxy_port = 0;
+  uint16_t valid_seconds = 0;
+
+  void encode(Writer& w) const {
+    w.writeU8(kind);
+    w.writeU8(code);
+    w.writeString(ssid, 32);
+    w.writeString(passphrase, 63);
+    w.writeString(proxy_host, 45);
+    w.writeU16(proxy_port);
+    w.writeU16(valid_seconds);
+  }
+  static bool decode(Reader& r, SyncOffer& out) {
+    out.kind = r.readU8();
+    out.code = r.readU8();
+    out.ssid = r.readString(32);
+    out.passphrase = r.readString(63);
+    out.proxy_host = r.readString(45);
+    out.proxy_port = r.readU16();
+    out.valid_seconds = r.readU16();
+    return r.ok();
+  }
+  bool operator==(const SyncOffer&) const = default;
+};
 
 struct TemplateCaps {
   uint8_t id = 0;
