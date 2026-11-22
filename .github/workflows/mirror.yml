@@ -4,12 +4,14 @@ name: mirror
 # A branch with an open pull request builds once, on the pull request: push only builds develop and develop-retink
 # (develop-retink is the "develop" firmware channel, see .github/workflows/ota-publish.yml).
 # The X4 (ESP32-C3) image is only built on demand (Actions > mirror > Run workflow).
+# freeink-sdk (the submodule pointer) is listed too: the mirror firmware is built from it, and a bump that no workflow
+# rebuilt would reach the OTA channels unbuilt.
 on:
   push:
     branches: [develop, develop-retink]
-    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml', 'freeink-sdk']
   pull_request:
-    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml']
+    paths: ['mirror/**', 'platformio.ini', 'src/activities/home/**', 'src/components/CoverGridHomeUi.*', '.github/workflows/mirror.yml', 'freeink-sdk']
   workflow_dispatch:
 
 # A newer push to the same branch replaces the run that is still going.
