@@ -23,6 +23,7 @@
 #include "components/UITheme.h"
 #include "device/OtaBoot.h"
 #include "device/OtaVerify.h"
+#include "device/ReleaseRedirect.h"
 #include "fontIds.h"
 #include "network/FirmwareBoardTag.h"
 #include "network/FirmwareFlasher.h"
@@ -50,11 +51,21 @@ bool heapAllowsTls(size_t reserved = 0) {
 // Fetches `url` into memory, at most `limit` bytes (more aborts the transfer). The buffer is reserved once, up front:
 // with -fno-exceptions a failed allocation inside a growing std::string aborts the device. The caller has checked
 // heapAllowsTls(limit) first.
+// Set by fetchBytes(): the last fetch was answered "not found" (by GitHub's redirect or by the download).
+bool g_notFound = false;
+
 bool fetchBytes(const char* url, size_t limit, std::string& out) {
   out.clear();
+  g_notFound = false;
+  std::string target;  // GitHub's redirect is read here: the HTTP client cannot (see core/ReleaseRedirect.h)
+  const ota::Resolve resolved = ota::resolveReleaseUrl(url, target);
+  if (resolved != ota::Resolve::Ok) {
+    g_notFound = resolved == ota::Resolve::NotFound;
+    return false;
+  }
   out.reserve(limit);
   bool tooBig = false;
-  const bool ok = HttpDownloader::fetchUrl(url, [&](const uint8_t* data, size_t len) {
+  const bool ok = HttpDownloader::fetchUrl(target, [&](const uint8_t* data, size_t len) {
     if (out.size() + len > limit) {
       tooBig = true;
       return false;
@@ -62,6 +73,7 @@ bool fetchBytes(const char* url, size_t limit, std::string& out) {
     out.append(reinterpret_cast<const char*>(data), len);
     return true;
   });
+  if (!ok) g_notFound = HttpDownloader::lastStatus() == 404;
   return ok && !tooBig;
 }
 }  // namespace
@@ -119,8 +131,8 @@ bool MirrorUpdateActivity::fetchManifest() {
     return false;
   }
   if (!fetchBytes(ota::signatureUrl(board).c_str(), ota::kMaxSignatureBytes, signature)) {
-    fail(HttpDownloader::lastStatus() == 404 ? "No channel list is published yet"
-                                             : "Could not reach the update server: check Wi-Fi and try again");
+    fail(g_notFound ? "No channel list is published yet"
+                    : "Could not reach the update server: check Wi-Fi and try again");
     return false;
   }
   if (!heapAllowsTls(ota::kMaxManifestBytes)) {
@@ -215,8 +227,13 @@ void MirrorUpdateActivity::install(const ota::Channel& c) {
   abort_ = false;
   const size_t signedSize = c.size;
   const std::string board(board_tag::boardName(), board_tag::boardNameLen());
+  std::string imageUrl;  // GitHub's signed address, valid for a few minutes: resolved right before the download
+  const ota::Resolve resolved = ota::resolveReleaseUrl(ota::imageUrl(c.id, board), imageUrl);
+  if (resolved != ota::Resolve::Ok)
+    return fail(resolved == ota::Resolve::NotFound ? "That build is no longer published: go Back and choose again"
+                                                   : "Could not reach the update server: check Wi-Fi and try again");
   const auto err = HttpDownloader::downloadToFile(
-      ota::imageUrl(c.id, board), ota::kStagePath,
+      imageUrl, ota::kStagePath,
       [this, signedSize](size_t d, size_t t) {
         if (d > signedSize) abort_ = true;
         progress(d, t);
