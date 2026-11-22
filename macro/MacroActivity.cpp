@@ -156,8 +156,8 @@ void MacroActivity::press(int index) {
     std::lock_guard<std::mutex> lock(mutex_);
     pressed_ = index;
   }
+  sendMacro(index);  // the key goes out first: the e-ink refresh below takes hundreds of ms the PC should not wait for
   requestUpdateAndWait();
-  sendMacro(index);
   {
     std::lock_guard<std::mutex> lock(mutex_);
     pressed_ = -1;

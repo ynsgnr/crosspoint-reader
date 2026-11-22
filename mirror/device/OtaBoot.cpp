@@ -4,6 +4,7 @@
 #include <esp_log.h>
 #include <esp_ota_ops.h>
 #include <esp_partition.h>
+#include <esp_sleep.h>
 #include <esp_system.h>
 #include <nvs.h>
 
@@ -84,7 +85,8 @@ void disarmBootGuard() {
 void bootGuardAtStart() {
   BootGuard g;
   if (load(g) != Load::Record) return;  // nothing recorded, or unreadable: never act on a record that cannot be trusted
-  const BootAction action = onBootGuard(g, MIRROR_GIT_REV);
+  const bool timerWake = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER;  // a background sync, not a try
+  const BootAction action = onBootGuard(g, MIRROR_GIT_REV, timerWake);
   if (action == BootAction::Nothing) return;
   if (action == BootAction::Stale) {
     // Another build than the one on trial is running (an SD or stock update since, or an older firmware), or the image

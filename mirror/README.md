@@ -56,7 +56,7 @@ with a tiny "^"), and the draft box with its cursor. The box is 3 lines tall and
 screen, leaving room for one message); when the draft is longer it shows the end, or the cursor's line when the cursor is further up.
 Up/Down (or the page buttons) scroll one message, holding keeps scrolling (see Scrolling); Back opens the menu.
 
-## Security (protocol 3)
+## Security
 * **Encrypted and authenticated only.** Every characteristic (mirror `data`, `event`, `caps`, and every HID/battery/device-info characteristic) has `*_ENC | *_AUTHEN`;
   the notification subscription (CCCD) is made `READ/WRITE_ENC|AUTHEN` for the whole GATT server with `ble_gatts_set_clt_cfg_perm_flags` (`MirrorBle.cpp`). A second check in `onWrite`
   drops data from a link that is not encrypted and authenticated. No debug characteristic exists; nothing logs message text.
@@ -170,4 +170,4 @@ See `MIRROR_CHANGES.md`.
 
 CI: the `mirror` workflow builds `x4pro-macro` (artifact `firmware-x4pro-mirror.bin`) for PRs that touch `mirror/`, `platformio.ini` or the Home files.
 
-Wi-Fi: background syncs (TRMNL sleep image, OPDS) join any saved network in range, last connected first.
+Wi-Fi: background syncs (TRMNL sleep image, OPDS) try the last connected network first (no scan) and scan for the other saved networks only when that fails.

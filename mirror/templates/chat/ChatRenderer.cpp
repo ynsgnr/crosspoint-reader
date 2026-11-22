@@ -185,6 +185,6 @@ std::string ChatRenderer::dump() const {
   return out;
 }
 
-MIRROR_REGISTER_TEMPLATE(ChatRenderer, gen::chat::kTemplateId, 1, gen::chat::kSchemaVersion)
+MIRROR_REGISTER_TEMPLATE(ChatRenderer, gen::chat::kTemplateId, gen::chat::kSchemaVersion, gen::chat::kSchemaVersion)
 
 }  // namespace mirror::chat
