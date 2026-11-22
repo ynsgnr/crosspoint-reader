@@ -175,9 +175,21 @@ static void testRegistryAndCaps() {
   CHECK(gen::Capabilities::decode(r, c) && r.atEnd());
   CHECK(c.max_payload == 2048 && c.screen_width == 480 && c.templates.size() == reg.entries().size() &&
         c.templates[0].id == 1 && c.fonts.size() == 3);
+  // Only schema versions the renderers decode are advertised, and the session refuses the rest.
+  for (const auto& t : c.templates) {
+    const auto* e = reg.find(t.id);
+    CHECK(e && t.min_schema == e->minSchema && t.max_schema == e->maxSchema);
+    if (t.id == gen::chat::kTemplateId)
+      CHECK(t.min_schema == gen::chat::kSchemaVersion && t.max_schema == gen::chat::kSchemaVersion);
+  }
 }
 
 namespace {
+// The schema a template is at now; tests that do not care about versions send this.
+uint8_t currentSchema(uint8_t templateId) {
+  return templateId == gen::list::kTemplateId ? gen::list::kSchemaVersion : gen::chat::kSchemaVersion;
+}
+
 struct Device {
   std::vector<Envelope> out;
   Session session{TemplateRegistry::instance(), [this](const std::vector<uint8_t>& f) {
@@ -185,11 +197,11 @@ struct Device {
                     p.feed(f.data(), f.size(), out);
                   }};
   void send(uint8_t flags, uint16_t seq, uint16_t base, std::vector<uint8_t> payload, uint8_t templateId = 1,
-            uint8_t schema = 1, uint8_t proto = gen::kProtocolVersion) {
+            uint8_t schema = 0, uint8_t proto = gen::kProtocolVersion) {
     Envelope e;
     e.protocolVersion = proto;
     e.templateId = templateId;
-    e.schemaVersion = schema;
+    e.schemaVersion = schema ? schema : currentSchema(templateId);
     e.flags = flags;
     e.seq = seq;
     e.baseSeq = base;

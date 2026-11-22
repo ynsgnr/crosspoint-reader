@@ -154,6 +154,24 @@ void testGuardTrialAndRollback() {
   OCHECK(!guardConfirmDue(g, 1u << 30) && onBootGuard(g, "bbbbbbbb") == BootAction::Nothing);
 }
 
+void testGuardIgnoresTimerWakes() {
+  BootGuard g;
+  armGuard(g, 1, "a16f221d");
+  // Background syncs wake on a timer, run a few seconds and sleep: any number of them leaves the trial untouched.
+  for (int i = 0; i < 10; ++i) OCHECK(onBootGuard(g, "a16f221d", true) == BootAction::Nothing);
+  OCHECK(g.pending && g.tries == 0);
+  // Real boots still count, and timer wakes between them neither add nor subtract.
+  OCHECK(onBootGuard(g, "a16f221d") == BootAction::Proceed && g.tries == 1);
+  OCHECK(onBootGuard(g, "a16f221d", true) == BootAction::Nothing && g.tries == 1);
+  for (int i = 2; i <= kMaxBootTries; ++i) OCHECK(onBootGuard(g, "a16f221d") == BootAction::Proceed && g.tries == i);
+  OCHECK(onBootGuard(g, "a16f221d", true) == BootAction::Nothing);  // no rollback decided on a timer wake
+  OCHECK(onBootGuard(g, "a16f221d") == BootAction::Rollback);       // the next real boot still rolls back
+  // A timer wake of another build does not drop the record either.
+  BootGuard h;
+  armGuard(h, 1, "a16f221d");
+  OCHECK(onBootGuard(h, "97f15374", true) == BootAction::Nothing && h.pending);
+}
+
 void testGuardNeverActsOnAnotherBuild() {
   BootGuard g;
   armGuard(g, 1, "a16f221d");
@@ -214,6 +232,7 @@ int runOtaTests(int& checks) {
   testNamingConvention();
   testManifestWrittenByTheScript();
   testGuardTrialAndRollback();
+  testGuardIgnoresTimerWakes();
   testGuardNeverActsOnAnotherBuild();
   testGuardFailedSwitchIsBounded();
   testGuardRecord();
