@@ -64,7 +64,6 @@ bool tunnel(int fd, const std::string& host, uint16_t port) {
   proxy.sin_family = AF_INET;
   proxy.sin_port = htons(g.proxyPort);
   proxy.sin_addr.s_addr = htonl(g.proxyIp);
-  
 
   if (ok) {
     ok = __real_lwip_connect(fd, reinterpret_cast<const sockaddr*>(&proxy), sizeof(proxy)) == 0;
