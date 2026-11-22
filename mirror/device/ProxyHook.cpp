@@ -21,8 +21,7 @@ int __real_lwip_connect(int s, const struct sockaddr* name, socklen_t namelen);
 
 namespace {
 
-constexpr int kStepSeconds = 10;  // each step of the CONNECT exchange (connect, send, read the answer)
-
+constexpr int kStepSeconds = 10;  // timeout for each step of the CONNECT exchange
 struct State {
   std::atomic<bool> active{false};
   uint32_t proxyIp = 0, subnet = 0, mask = 0;  // host byte order; set before `active`
@@ -38,22 +37,38 @@ bool isStream(int fd) {
   return lwip_getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &len) == 0 && type == SOCK_STREAM;
 }
 
-// Connects `fd` to the proxy and asks it for host:port. The socket is non-blocking (WiFiClient connects and then
-// select()s for it to be writable): it is made blocking for the exchange and handed back connected, so that select()
-// returns at once.
+// Connects `fd` to the proxy and asks it for host:port. The socket is temporarily made blocking
+// for the CONNECT exchange, then returned in its original mode with its original socket timeouts.
 bool tunnel(int fd, const std::string& host, uint16_t port) {
   const int flags = fcntl(fd, F_GETFL, 0);
-  fcntl(fd, F_SETFL, flags & ~O_NONBLOCK);
-  const timeval tv{kStepSeconds, 0};
-  lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-  lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+  if (flags < 0) return false;
+
+  // Save both options: leaving the temporary timeout installed also limits the subsequent TLS
+  // session, which can fail otherwise-valid downloads whenever a transfer pauses for >10 seconds.
+  timeval oldSendTimeout{};
+  timeval oldRecvTimeout{};
+  socklen_t oldSendTimeoutLen = sizeof(oldSendTimeout);
+  socklen_t oldRecvTimeoutLen = sizeof(oldRecvTimeout);
+  const bool haveOldSendTimeout =
+      lwip_getsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &oldSendTimeout, &oldSendTimeoutLen) == 0;
+  const bool haveOldRecvTimeout =
+      lwip_getsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &oldRecvTimeout, &oldRecvTimeoutLen) == 0;
+
+  if (fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) < 0) return false;
+
+  const timeval stepTimeout{kStepSeconds, 0};
+  bool ok = lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &stepTimeout, sizeof(stepTimeout)) == 0 &&
+            lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &stepTimeout, sizeof(stepTimeout)) == 0;
 
   sockaddr_in proxy{};
   proxy.sin_family = AF_INET;
   proxy.sin_port = htons(g.proxyPort);
   proxy.sin_addr.s_addr = htonl(g.proxyIp);
-  bool ok = __real_lwip_connect(fd, reinterpret_cast<const sockaddr*>(&proxy), sizeof(proxy)) == 0;
+  
 
+  if (ok) {
+    ok = __real_lwip_connect(fd, reinterpret_cast<const sockaddr*>(&proxy), sizeof(proxy)) == 0;
+  }
   if (ok) {
     const std::string request = mirror::connectRequest(host, port);
     size_t sent = 0;
@@ -76,16 +91,25 @@ bool tunnel(int fd, const std::string& host, uint16_t port) {
       state = mirror::parseConnectReply(reply, have);
     }
     ok = state == mirror::ConnectReply::Ok;
-    if (!ok)
+    if (!ok) {
       LOG_ERR("PROXY", "%s:%u refused by the proxy (state %d)", host.c_str(), static_cast<unsigned>(port),
               static_cast<int>(state));
+    }
   }
+
+  // Save errno before cleanup: getsockopt/setsockopt/fcntl may overwrite it.
   const int err = errno;
+  if (haveOldSendTimeout) {
+    lwip_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &oldSendTimeout, oldSendTimeoutLen);
+  }
+  if (haveOldRecvTimeout) {
+    lwip_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &oldRecvTimeout, oldRecvTimeoutLen);
+  }
   fcntl(fd, F_SETFL, flags);
-  if (!ok)
-    errno = (err == 0 || err == EINPROGRESS)
-                ? ECONNREFUSED
-                : err;  // never EINPROGRESS: the caller would wait for a socket that failed
+
+  if (!ok) {
+    errno = (err == 0 || err == EINPROGRESS) ? ECONNREFUSED : err;
+  }
   return ok;
 }
 
