@@ -46,7 +46,7 @@ Without `-DCROSSPOINT_MACRO=1` (every other environment) none of this is compile
 environments extend the mirror ones.
 
 ## Not verified
-* **Nothing here has been compiled for the device or run on hardware.** Only the host test of the table ran. The USB path (`MacroUsb.cpp`) is the newest and least checked: `USBHIDKeyboard` + `USBHIDConsumerControl` with `USB.begin()` next to hardware CDC/JTAG, and the reboot on leaving.
+* **Not run on hardware.** CI compiles the firmware with Macro (`x4pro-macro`, `macro` on manual dispatch, `.github/workflows/mirror.yml`) and runs the host test of the table; nothing has been run on a device. The USB path (`MacroUsb.cpp`) is the newest and least checked: `USBHIDKeyboard` + `USBHIDConsumerControl` with `USB.begin()` next to hardware CDC/JTAG, and the reboot on leaving.
 * Auto-open: the `usb_serial_jtag_is_connected()` host check in `MacroAuto.cpp` on a PC, a hub, a sleeping PC and a charger; the boot-time port restore (`restoreSerialJtagIfOtgLeftOn()`); the second switch row on the Macro screen.
 * The 3x4 layout, the black pressed key and the extra refresh per press (ghosting, battery) are not seen on a display.
 * `macro/build.py` appends to `SRC_FILTER` after `mirror/build.py` replaced it; the order of `extra_scripts` and the append on a
