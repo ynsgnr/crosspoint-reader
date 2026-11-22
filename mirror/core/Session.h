@@ -54,6 +54,10 @@ class Session {
   // should show its launcher. The stack is cleared, so the view on screen is the only one left.
   bool takeBackUnavailable();
 
+  // The pairing code the phone asked the device to show (0..65535), or -1. The user types it into the app, which
+  // confirms the device; until then the phone sends nothing else. Cleared by pair_ok. A Session lives for one link.
+  int32_t pairCode() const { return pairCode_; }
+
   // One-shot flags; either one means the next frame should be a full refresh.
   bool takeTemplateSwitched() {
     bool s = switched_;
@@ -92,6 +96,7 @@ class Session {
   bool switched_ = false;
   bool resync_ = false;
   bool backUnavailable_ = false;
+  int32_t pairCode_ = -1;
 };
 
 }  // namespace mirror
