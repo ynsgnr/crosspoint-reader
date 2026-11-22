@@ -20,6 +20,7 @@
 #include "templates/chat/ChatRenderer.h"
 #include "templates/list/ListRenderer.h"
 #include "tests/ota_tests.h"
+#include "tests/phone_sync_tests.h"
 #include "tests/proxy_hook_tests.h"
 #include "tests/proxy_shim_tests.h"
 
@@ -869,10 +870,42 @@ static void testPairingCodeFromThePhone() {
   CHECK(d.session.pairCode() == -1);
 }
 
+static void testSyncMessages() {
+  Device d;
+  sim::SimGfx g(480, 800);
+  auto caps = d.session.capabilities(g, "CrossPoint");
+  Reader cr(caps.data(), caps.size());
+  gen::Capabilities c;
+  CHECK(gen::Capabilities::decode(cr, c) && (c.features & gen::kFeatureWifiSync));
+  CHECK(!d.session.takeSyncOffer().has_value());
+  // The phone's offer arrives as status on the control template with the sync schema.
+  Writer w;
+  gen::SyncOffer{gen::kSyncOfferReady, 0, "AndroidShare_7", "pw", "10.245.144.27", 8888, 600}.encode(w);
+  d.send(gen::kFlagStatus, 1, 0, w.take(), static_cast<uint8_t>(gen::kControlTemplateId),
+         static_cast<uint8_t>(gen::kSyncSchema));
+  const auto offer = d.session.takeSyncOffer();
+  CHECK(offer && offer->ssid == "AndroidShare_7" && offer->proxy_port == 8888 && offer->valid_seconds == 600);
+  CHECK(!d.session.takeSyncOffer().has_value());  // taken once
+  CHECK(!d.session.phoneStatus().has_value());    // and it is not mistaken for a PhoneStatus
+  // A request goes out as a command with the sync schema.
+  d.out.clear();
+  d.session.sendSyncRequest(gen::kSyncRequestStart);
+  CHECK(d.out.size() == 1 && d.out[0].templateId == gen::kControlTemplateId &&
+        d.out[0].schemaVersion == gen::kSyncSchema && d.out[0].has(gen::kFlagCommand));
+  Reader rr(d.out[0].payload.data(), d.out[0].payload.size());
+  gen::SyncRequest req;
+  CHECK(gen::SyncRequest::decode(rr, req) && rr.atEnd() && req.kind == gen::kSyncRequestStart);
+  // A garbled offer is ignored.
+  d.send(gen::kFlagStatus, 2, 0, {1, 2, 3}, static_cast<uint8_t>(gen::kControlTemplateId),
+         static_cast<uint8_t>(gen::kSyncSchema));
+  CHECK(!d.session.takeSyncOffer().has_value());
+}
+
 int main() {
   testCrcAndWire();
   testLinkGuard();
   testPairingCodeFromThePhone();
+  testSyncMessages();
   testEnvelopeStream();
   testRefreshPolicy();
   testWrap();
@@ -903,6 +936,7 @@ int main() {
   testBackUnavailableFromThePhone();
   g_fail += runOtaTests(g_checks);
   g_fail += runProxyShimTests(g_checks);
+  g_fail += runPhoneSyncTests(g_checks);
   g_fail += runProxyHookTests(g_checks);
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);

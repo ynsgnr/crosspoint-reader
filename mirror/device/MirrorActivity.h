@@ -3,6 +3,7 @@
 // Mirror screen: BLE advertising and the connection exist only while it is open.
 // MirrorActivity.cpp: lifecycle, input loop, the status page (pairing, launcher) and chat drawing.
 // MirrorScreens.cpp: the unlock pad.
+// MirrorPhoneSync.cpp: "Sync over phone" (hotspot + proxy shim, see core/PhoneSync.h).
 #include <memory>
 #include <mutex>
 #include <string>
@@ -33,7 +34,7 @@ class MirrorActivity final : public Activity {
   // from the chat). Unlock: the PIN pad.
   enum class Screen { Status, Menu, Unlock };
   // Button ids on the status page; LaunchApp + i opens the phone's app i.
-  enum Action { kNone, kPairPhone, kForgetPhone, kStartMirror, kUnlock, kBackToChat, kLaunchApp };
+  enum Action { kNone, kPairPhone, kForgetPhone, kStartMirror, kUnlock, kBackToChat, kSyncPhone, kLaunchApp };
 
   // State of the current link, cleared whenever the connection changes.
   struct Link {
@@ -57,6 +58,7 @@ class MirrorActivity final : public Activity {
   int buttonsTop() const;
   std::vector<int> buttonIds() const;
   void runAction(int action);
+  void syncOverPhone();  // MirrorPhoneSync.cpp: blocking, so loop() runs it after releasing mutex_
   void drawStatus();
   mirror::RefreshKind drawFrame();  // draws under mutex_, returns the refresh to run
 
@@ -84,7 +86,8 @@ class MirrorActivity final : public Activity {
   int cursor_ = 0;    // selected button (status page) or key (unlock pad)
   std::string note_;  // one line of feedback; never a typed digit
   bool bondsForgotten_ = false;
-  uint32_t enterDueMs_ = 0;  // when to send Enter after waking the phone (0 = none pending)
+  bool syncRequested_ = false;  // the button was pressed: loop() starts the sync once mutex_ is free
+  uint32_t enterDueMs_ = 0;     // when to send Enter after waking the phone (0 = none pending)
   mirror::ButtonColumn buttons_;
   std::vector<int> drawnButtons_;  // the buttons the screen shows: a tap is only read against these
   int armed_ = kNone;              // a destructive action waiting for its second tap
