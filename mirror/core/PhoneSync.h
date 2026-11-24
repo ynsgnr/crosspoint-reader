@@ -32,6 +32,9 @@ class PhoneSyncIo {
   virtual void stage(SyncStage s) = 0;
   virtual void sendRequest(uint8_t kind) = 0;                      // gen::kSyncRequest*
   virtual bool waitOffer(gen::SyncOffer& offer, uint32_t ms) = 0;  // keeps the BLE link served while it waits
+  virtual void stopBluetooth() = 0;  // frees the stack's heap; the phone keeps its hotspot meanwhile
+  virtual void startBluetooth() = 0;
+  virtual bool waitLink(uint32_t ms) = 0;  // true when the phone has reconnected
   virtual bool joinWifi(const gen::SyncOffer& offer, uint32_t ms) = 0;
   virtual void enableProxy(const gen::SyncOffer& offer) = 0;  // the shim: all connections now go through the phone
   virtual void disableProxy() = 0;
@@ -39,6 +42,6 @@ class PhoneSyncIo {
   virtual void leaveWifi() = 0;
 };
 
-SyncResult runPhoneSync(PhoneSyncIo& io, uint32_t answerMs = 20000, uint32_t joinMs = 30000);
+SyncResult runPhoneSync(PhoneSyncIo& io, uint32_t answerMs = 20000, uint32_t joinMs = 30000, uint32_t relinkMs = 20000);
 
 }  // namespace mirror

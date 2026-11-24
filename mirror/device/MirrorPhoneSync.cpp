@@ -98,6 +98,20 @@ void MirrorActivity::syncOverPhone() {
       }
       return false;
     }
+    // The internal heap does not hold Wi-Fi, Bluetooth and a TLS download together (serial log: "OSY Stopping: low
+    // memory, max block 15860"): the radio stack goes off for the sync, the phone keeps its hotspot meanwhile (see its
+    // WifiSyncController).
+    void stopBluetooth() override { a.ble_.stop(); }
+    void startBluetooth() override { a.startBle(); }
+    bool waitLink(uint32_t ms) override {
+      const uint32_t until = millis() + ms;
+      while (static_cast<int32_t>(until - millis()) > 0) {
+        a.ble_.service();  // advertises again once the stack is up
+        if (a.ble_.connected()) return true;
+        delay(100);
+      }
+      return false;
+    }
     bool joinWifi(const gen::SyncOffer& offer, uint32_t ms) override {
       WiFi.persistent(false);
       WiFi.mode(WIFI_STA);

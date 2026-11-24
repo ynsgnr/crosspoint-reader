@@ -20,9 +20,9 @@ namespace {
 
 struct FakeIo : PhoneSyncIo {
   std::vector<std::string> calls;
-  bool memory = true, answers = true, joins = true, syncs = true;
+  bool memory = true, answers = true, joins = true, syncs = true, linkBack = true;
   gen::SyncOffer offer{gen::kSyncOfferReady, 0, "AndroidShare_1", "secret", "10.245.144.27", 8888, 600};
-  uint32_t askedMs = 0, joinMs = 0;
+  uint32_t askedMs = 0, joinMs = 0, relinkMs = 0;
 
   bool enoughMemory() override { return memory; }
   void stage(SyncStage s) override { calls.push_back("stage" + std::to_string(static_cast<int>(s))); }
@@ -34,6 +34,13 @@ struct FakeIo : PhoneSyncIo {
     calls.push_back("wait");
     if (answers) out = offer;
     return answers;
+  }
+  void stopBluetooth() override { calls.push_back("bt:off"); }
+  void startBluetooth() override { calls.push_back("bt:on"); }
+  bool waitLink(uint32_t ms) override {
+    relinkMs = ms;
+    calls.push_back("link");
+    return linkBack;
   }
   bool joinWifi(const gen::SyncOffer& o, uint32_t ms) override {
     joinMs = ms;
@@ -65,16 +72,19 @@ int runPhoneSyncTests(int& checks) {
     FakeIo io;
     const SyncResult r = runPhoneSync(io);
     SCHECK(r.outcome == SyncOutcome::Done);
-    SCHECK(io.trace() ==
-           "stage0 request:start wait stage1 join:AndroidShare_1 stage2 proxy:on:10.245.144.27:8888 sync proxy:off "
-           "wifi:off stage3 request:done");
-    SCHECK(io.askedMs == 20000 && io.joinMs == 30000);
+    // Bluetooth goes off before the radio is used for Wi-Fi and TLS, and is back (with "done" over it) after everything
+    // is undone.
+    SCHECK(
+        io.trace() ==
+        "stage0 request:start wait stage1 bt:off join:AndroidShare_1 stage2 proxy:on:10.245.144.27:8888 sync proxy:off "
+        "wifi:off stage3 bt:on link request:done");
+    SCHECK(io.askedMs == 20000 && io.joinMs == 30000 && io.relinkMs == 20000);
   }
   {  // a failed sync is still undone and reported
     FakeIo io;
     io.syncs = false;
     SCHECK(runPhoneSync(io).outcome == SyncOutcome::SyncFailed);
-    SCHECK(io.trace().find("proxy:off wifi:off stage3 request:done") != std::string::npos);
+    SCHECK(io.trace().find("proxy:off wifi:off stage3 bt:on link request:done") != std::string::npos);
   }
   {  // no answer: nothing joined, and the phone is told (it may answer late)
     FakeIo io;
@@ -93,7 +103,14 @@ int runPhoneSyncTests(int& checks) {
     FakeIo io;
     io.joins = false;
     SCHECK(runPhoneSync(io).outcome == SyncOutcome::JoinFailed);
-    SCHECK(io.trace() == "stage0 request:start wait stage1 join:AndroidShare_1 wifi:off request:done");
+    SCHECK(io.trace() ==
+           "stage0 request:start wait stage1 bt:off join:AndroidShare_1 wifi:off bt:on link request:done");
+  }
+  {  // the phone does not come back after the sync: nothing is sent into the void (it closes its hotspot when idle)
+    FakeIo io;
+    io.linkBack = false;
+    SCHECK(runPhoneSync(io).outcome == SyncOutcome::Done);
+    SCHECK(io.trace().find("bt:on link") != std::string::npos && io.trace().find("request:done") == std::string::npos);
   }
   {  // unusable offers
     FakeIo io;
@@ -101,7 +118,8 @@ int runPhoneSyncTests(int& checks) {
     SCHECK(runPhoneSync(io).outcome == SyncOutcome::Stopped);
     FakeIo noPort;
     noPort.offer.proxy_port = 0;
-    SCHECK(runPhoneSync(noPort).outcome == SyncOutcome::Stopped && noPort.trace().find("join") == std::string::npos);
+    SCHECK(runPhoneSync(noPort).outcome == SyncOutcome::Stopped && noPort.trace().find("join") == std::string::npos &&
+           noPort.trace().find("bt:off") == std::string::npos);  // an unusable offer never costs the link
     FakeIo noSsid;
     noSsid.offer.ssid.clear();
     SCHECK(runPhoneSync(noSsid).outcome == SyncOutcome::Stopped);
