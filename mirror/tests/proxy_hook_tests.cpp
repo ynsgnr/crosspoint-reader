@@ -171,6 +171,28 @@ int runProxyHookTests(int& checks) {
     HCHECK(proxy.seen.rfind("CONNECT 93.184.216.34:80 HTTP/1.1", 0) == 0);
     disable();
   }
+  {  // the CONNECT exchange must not leave its 10 s step timeout on the socket (a later pause over 10 s would end the
+     // transfer)
+    FakeProxy proxy;
+    proxy.serveOne();
+    enable(loopback, proxy.port, 0x0A000000, 0xFF000000);
+    const int fd = nonBlockingSocket();
+    timeval mine{37, 0};  // what the caller had set before connecting
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &mine, sizeof(mine));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &mine, sizeof(mine));
+    const sockaddr_in a = addr(lookup("slow.example"), 443);
+    HCHECK(__wrap_lwip_connect(fd, reinterpret_cast<const sockaddr*>(&a), sizeof(a)) == 0);
+    timeval rcv{}, snd{};
+    socklen_t len = sizeof(rcv);
+    getsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &rcv, &len);
+    len = sizeof(snd);
+    getsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &snd, &len);
+    HCHECK(rcv.tv_sec == 37 && snd.tv_sec == 37);
+    HCHECK((fcntl(fd, F_GETFL, 0) & O_NONBLOCK) != 0);  // and it is non-blocking again, as the caller left it
+    close(fd);
+    if (proxy.worker.joinable()) proxy.worker.join();
+    disable();
+  }
   {  // a refusal fails the connect with an errno the caller treats as an error (never EINPROGRESS)
     FakeProxy proxy;
     proxy.status = "HTTP/1.1 403 destination not allowed\r\nContent-Length: 0\r\n\r\n";
