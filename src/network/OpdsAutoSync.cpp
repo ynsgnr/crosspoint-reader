@@ -206,9 +206,17 @@ bool enabled() { return SETTINGS.opdsSyncMinutes != 0 && hasSyncFeed(); }
 
 bool joinWifi() { return joinSavedWifi(); }
 
+namespace {
+NetworkFallback* g_fallback = nullptr;
+}  // namespace
+
+void setNetworkFallback(NetworkFallback* fallback) { g_fallback = fallback; }
+
+bool joinWifiOrFallback() { return joinSavedWifi() || (g_fallback && g_fallback->open()); }
+
 Summary syncNow() {
   Summary summary;
-  if (!joinSavedWifi()) {
+  if (!joinWifiOrFallback()) {
     summary.wifiFailed = true;
     writeResultLog(summary);
     return summary;

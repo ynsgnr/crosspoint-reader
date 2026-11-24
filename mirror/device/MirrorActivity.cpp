@@ -98,39 +98,33 @@ void MirrorActivity::loop() {
   std::vector<uint8_t> bytes;
   bool overflowed = false;
   const bool received = ble_.drain(bytes, overflowed);
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (overflowed) session_->requestResync();
-    if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (overflowed) session_->requestResync();
+  if (received && session_->feed(bytes.data(), bytes.size())) redraw = true;
 
-    if (session_->takeBackUnavailable() && showsChat()) {
-      setScreen(Screen::Menu);
-      redraw = true;
-    }
-    announceKeyboardToPhone();
-    sendDueEnter();
-    switch (screen_) {
-      case Screen::Status:
-        if (session_->active() && phoneLocked()) {  // a locked phone shows the PIN pad, never the app it was last in
-          openUnlock();
-          redraw = true;
-        } else {
-          redraw |= session_->active() ? loopChat() : loopStatus();
-        }
-        break;
-      case Screen::Menu:
-        redraw |= loopStatus();
-        break;
-      case Screen::Unlock:
-        redraw |= loopUnlock();
-        break;
-    }
-    if (redraw) requestUpdate();
-  }  // mutex_
-  if (syncRequested_) {  // blocks for the length of the sync, with the screen still drawn by the render task
-    syncRequested_ = false;
-    syncOverPhone();
+  if (session_->takeBackUnavailable() && showsChat()) {
+    setScreen(Screen::Menu);
+    redraw = true;
   }
+  announceKeyboardToPhone();
+  sendDueEnter();
+  switch (screen_) {
+    case Screen::Status:
+      if (session_->active() && phoneLocked()) {  // a locked phone shows the PIN pad, never the app it was last in
+        openUnlock();
+        redraw = true;
+      } else {
+        redraw |= session_->active() ? loopChat() : loopStatus();
+      }
+      break;
+    case Screen::Menu:
+      redraw |= loopStatus();
+      break;
+    case Screen::Unlock:
+      redraw |= loopUnlock();
+      break;
+  }
+  if (redraw) requestUpdate();
 }
 
 // Every connection starts a new sequence space; a disconnect returns to the status page.
@@ -170,8 +164,7 @@ void MirrorActivity::buildActions() {
   if (screen_ == Screen::Menu && session_->active()) buttons_.add("Back to chat", kBackToChat);
   if (!phone) buttons_.add("Start mirror on phone", kStartMirror);  // the phone's app is not linked yet
   if (phoneLocked()) buttons_.add("Unlock phone", kUnlock);
-  if (phone) buttons_.add("Sync books over phone", kSyncPhone);  // needs the phone app's Wi-Fi sync switched on
-  if (phone && !phone->locked)                                   // an app opened behind the lock screen shows nothing
+  if (phone && !phone->locked)  // an app opened behind the lock screen shows nothing
     for (size_t i = 0; i < phone->apps.size(); ++i)
       buttons_.add(phone->apps[i].name, kLaunchApp + static_cast<int>(i), /*half=*/true);
 }
@@ -216,10 +209,6 @@ void MirrorActivity::runAction(int action) {
       break;
     case kUnlock:
       openUnlock();
-      break;
-    case kSyncPhone:  // blocking: loop() runs it once mutex_ is released
-      syncRequested_ = true;
-      note_ = "Phone sync: starting...";
       break;
     case kBackToChat:
       setScreen(Screen::Status);

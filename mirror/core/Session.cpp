@@ -95,26 +95,7 @@ bool Session::takeBackUnavailable() {
   return true;
 }
 
-void Session::sendSyncRequest(uint8_t kind) {
-  Writer w;
-  gen::SyncRequest{kind}.encode(w);
-  emit(static_cast<uint8_t>(gen::kControlTemplateId), static_cast<uint8_t>(gen::kSyncSchema), gen::kFlagCommand, 0,
-       w.bytes());
-}
-
-std::optional<gen::SyncOffer> Session::takeSyncOffer() {
-  std::optional<gen::SyncOffer> offer;
-  offer.swap(syncOffer_);
-  return offer;
-}
-
 void Session::handleControl(const Envelope& e, bool& changed) {
-  if (e.schemaVersion == gen::kSyncSchema) {  // Wi-Fi sync: only the phone's offer (flags.status) comes this way
-    Reader r(e.payload.data(), e.payload.size());
-    gen::SyncOffer offer;
-    if (e.has(gen::kFlagStatus) && gen::SyncOffer::decode(r, offer) && r.atEnd()) syncOffer_ = std::move(offer);
-    return;
-  }
   if (e.has(gen::kFlagCommand)) {  // phone -> device; commands this firmware does not know are ignored
     Reader r(e.payload.data(), e.payload.size());
     gen::ControlCommand c;
@@ -178,7 +159,7 @@ std::vector<uint8_t> Session::capabilities(const Gfx& gfx, const char* deviceNam
   gen::Capabilities c;
   c.protocol_version = gen::kProtocolVersion;
   c.max_payload = maxPayload_;
-  c.features = gen::kFeaturePhoneStatus | gen::kFeaturePairingCode | gen::kFeatureWifiSync | extraFeatures;
+  c.features = gen::kFeaturePhoneStatus | gen::kFeaturePairingCode | extraFeatures;
   c.screen_width = static_cast<uint16_t>(gfx.width());
   c.screen_height = static_cast<uint16_t>(gfx.height());
   c.device_name = deviceName;

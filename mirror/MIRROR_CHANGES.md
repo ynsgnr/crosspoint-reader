@@ -25,6 +25,7 @@ Later features of the fork touch more upstream files, outside `mirror/` and `mac
 | `lib/I18n/translations/english.yaml`, `src/CrossPointSettings.h`, `src/SettingsList.cpp`, `USER_GUIDE.md` | Wake on Charge | the setting and its label (other languages fall back to English) |
 | `lib/Trmnl/TrmnlProtocol.*`, `src/network/TrmnlClient.*`, `test/trmnl/TrmnlProtocolTest.cpp` | Sleep image refresh | refresh only when due, record failures |
 | `src/network/OpdsAutoSync.cpp` | Background Wi-Fi | `joinWifi()` for timer wakes: the last connected network first, a scan only when that fails, then any other saved network in range |
+| `src/network/OpdsAutoSync.h`, `.cpp`, `src/activities/util/OpdsSyncPopup.cpp` | Sync over the phone | `NetworkFallback` and `joinWifiOrFallback()`: `syncNow()` asks the registered fallback (the phone, `mirror/device/PhoneRoute.cpp`) when no saved Wi-Fi can be joined; Sync Now gets online that way before it opens the Wi-Fi selection screen |
 | `src/platform/UsbSerialJtagHandoff.*` | Macro | the USB serial/JTAG hand-off used by Macro's auto-open |
 | `.github/workflows/*`, `.gitignore` | CI and OTA | listed above |
 

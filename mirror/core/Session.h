@@ -43,12 +43,6 @@ class Session {
   // Asks the phone to do something (gen::kCmd*). Only valid while connected.
   void sendCommand(uint8_t command, uint8_t arg = 0, uint8_t arg2 = 0);
 
-  // Wi-Fi sync (gen::kFeatureWifiSync): asks the phone to open its hotspot and proxy (gen::kSyncRequestStart), or says
-  // the sync is over (kSyncRequestDone). The phone answers with an offer, which the caller collects with
-  // takeSyncOffer().
-  void sendSyncRequest(uint8_t kind);
-  std::optional<gen::SyncOffer> takeSyncOffer();
-
   // The templates the device showed, oldest first (a chat opened from the list: list, chat). A template switch pushes;
   // a switch back to one already in the stack pops to it, like Android's back stack. Back is only offered while there
   // is something to go back to; the phone does the going back (gen::kCmdBack) and its screen decides what comes to the
@@ -103,7 +97,6 @@ class Session {
   bool resync_ = false;
   bool backUnavailable_ = false;
   int32_t pairCode_ = -1;
-  std::optional<gen::SyncOffer> syncOffer_;
 };
 
 }  // namespace mirror
