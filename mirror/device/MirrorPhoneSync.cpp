@@ -118,7 +118,11 @@ void MirrorActivity::syncOverPhone() {
     void disableProxy() override { proxyhook::disable(); }
     bool runSync() override {
       // opdssync::syncNow() joins "the last Wi-Fi" first, which returns at once because the hotspot is already up.
+      LOG_INF("SYNC", "before the sync: free %u, max block %u (Wi-Fi and Bluetooth are both up)",
+              static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(ESP.getMaxAllocHeap()));
       summary = opdssync::syncNow();
+      LOG_INF("SYNC", "after the sync: free %u, max block %u, lowest free %u", static_cast<unsigned>(ESP.getFreeHeap()),
+              static_cast<unsigned>(ESP.getMaxAllocHeap()), static_cast<unsigned>(ESP.getMinFreeHeap()));
       LOG_INF("SYNC", "servers=%u downloaded=%u failed=%u auth_failed=%d", summary.servers, summary.downloaded,
               summary.failed, summary.authFailed);
       return !summary.wifiFailed && !summary.authFailed && summary.failed == 0;

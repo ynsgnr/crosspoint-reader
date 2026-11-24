@@ -50,7 +50,14 @@ class DeviceBackend final : public Backend {
   DeviceBackend(const OpdsServer& server, const unsigned long deadlineMs)
       : server(server), deadlineMs(deadlineMs), ledgerFile(ledgerPath(server)) {}
 
-  bool canContinue() override { return static_cast<long>(millis() - deadlineMs) < 0 && heapFitsTls(); }
+  bool canContinue() override {
+    const bool inTime = static_cast<long>(millis() - deadlineMs) < 0;
+    const bool heapOk = heapFitsTls();
+    if (!inTime || !heapOk)  // the sync stops here without a download error: say why
+      LOG_ERR("OSY", "Stopping: %s (free %u, max block %u)", inTime ? "low memory" : "time is up",
+              static_cast<unsigned>(ESP.getFreeHeap()), static_cast<unsigned>(ESP.getMaxAllocHeap()));
+    return inTime && heapOk;
+  }
 
   Page fetchPage(const std::string& url) override {
     Page page;
