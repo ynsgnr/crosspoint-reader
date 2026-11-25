@@ -20,6 +20,9 @@
 #include "templates/chat/ChatRenderer.h"
 #include "templates/list/ListRenderer.h"
 #include "tests/ota_tests.h"
+#include "tests/phone_route_tests.h"
+#include "tests/proxy_hook_tests.h"
+#include "tests/proxy_shim_tests.h"
 
 using namespace mirror;
 
@@ -912,6 +915,9 @@ int main() {
   testBandHintFollowsTheStack();
   testBackUnavailableFromThePhone();
   g_fail += runOtaTests(g_checks);
+  g_fail += runProxyShimTests(g_checks);
+  g_fail += runPhoneRouteTests(g_checks);
+  g_fail += runProxyHookTests(g_checks);
   testGoldens();
   std::printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;

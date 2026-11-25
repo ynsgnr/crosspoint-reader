@@ -23,6 +23,7 @@
 #include "components/UITheme.h"
 #include "device/OtaBoot.h"
 #include "device/OtaVerify.h"
+#include "device/ProxyHook.h"
 #include "fontIds.h"
 #include "network/FirmwareBoardTag.h"
 #include "network/FirmwareFlasher.h"
@@ -68,6 +69,8 @@ bool fetchBytes(const char* url, size_t limit, std::string& out) {
 
 void MirrorUpdateActivity::onEnter() {
   Activity::onEnter();
+  // The updater is the way back from a bad build: it always uses the plain Wi-Fi sockets, never the phone proxy shim.
+  mirror::proxyhook::disable();
   // A power cut during an earlier download leaves the staged file (or its .part) behind.
   Storage.remove(ota::kStagePath);
   Storage.remove((std::string(ota::kStagePath) + ".part").c_str());

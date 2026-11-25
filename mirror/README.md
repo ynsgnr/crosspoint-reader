@@ -111,6 +111,19 @@ A locked or silent phone cannot answer, so Back opens the menu at once. The band
 While the phone says it is locked, a template screen is replaced by the PIN pad (it wakes the phone, like **Unlock phone**), so the last app is never shown over a lock screen. Back from the pad opens
 the status page (Unlock phone, Forget phone...); the pad does not reopen until the phone locks again or **Back to chat** is chosen while it is still locked. The pad closes by itself when the phone unlocks.
 
+## Sync over the phone
+When the OPDS sync cannot join any saved Wi-Fi network, it asks the phone for its mobile data instead: on a **timer wake**, and on **Sync Now** (Home or Settings). Nothing to press; there is no button. It needs the Retink app with "Wi-Fi sync" switched on (`features.wifi_sync`) and a confirmed phone. Sleep-time joins (plugin events, the sleep image outside a sync) never start it.
+The hook in the upstream sync file is small: `opdssync::joinWifiOrFallback()` tries Wi-Fi, then a registered `NetworkFallback`; `device/PhoneRoute.cpp` registers itself at start-up. The sequence is `core/PhoneRoute.cpp` (host-tested, every failure included):
+1. Start Bluetooth (the page turner's radio is stopped first) and wait up to 15 s for the paired phone to reconnect. No paired phone, or none in reach: skip.
+2. `SyncRequest(start)`; the phone opens a LocalOnlyHotspot and a proxy that leads out through its cellular network and answers with `SyncOffer(ready, ssid, passphrase, proxy_host, proxy_port, valid_seconds)` within 15 s, or with a refusal and its reason (`disabled`, `no_permission`, `no_cellular`, `hotspot_failed`, `busy`). The message goes over the encrypted BLE link. The device presents itself without templates, so the phone sends it nothing but control messages.
+3. **Bluetooth goes off**, then the device joins the hotspot (up to 30 s) and turns the proxy shim on. `syncNow()` finds Wi-Fi up and goes on: OPDS, downloads and the sleep image all leave through the phone.
+4. Nothing is closed explicitly. A timer wake ends in deep sleep and Sync Now restarts the device; the phone closes its hotspot after a minute without proxy traffic (or after `valid_seconds`).
+**Any failure skips the round**: Bluetooth and Wi-Fi are left off, the shim is off, and the sync reports no Wi-Fi like before. The next timer wake or Sync Now tries again.
+Why Bluetooth is off for the sync: the internal heap does not hold Wi-Fi, Bluetooth and a TLS download together (serial log: `OSY Stopping: low memory (free 44540, max block 15860)` with all three, against a 20 KB block needed for a download).
+
+**The proxy shim** (`device/ProxyHook.cpp`, pure parts in `core/ProxyShim.*`). The firmware's HTTP client opens its own sockets, so instead of changing it (it lives in the FreeInk SDK), the two lwIP calls every connection ends in are wrapped by the linker (`-Wl,--wrap=lwip_connect`, `--wrap=lwip_getaddrinfo`, `platformio_mirror.ini`). While on, a host name gets a fake address (198.18.x.y) and connecting to it, or to any address outside the hotspot, sends `CONNECT name:port` to the proxy and waits for 2xx; TLS then runs through the tunnel as usual. UDP, IPv6 lookups, the proxy and the hotspot subnet are never touched. While off (always, except after a successful phone route) both hooks pass straight through.
+**The firmware updater never uses the shim**: `MirrorUpdateActivity` switches it off when it opens and uses the plain Wi-Fi sockets, so a bad build can still fetch its own fix.
+
 ## Firmware channels (OTA)
 **Home > More > Firmware channels** installs a build that CI published: `develop` (the develop-retink branch) or `pr-<number>` (an open pull request of this repository).
 Everything is checked before the running firmware is touched:

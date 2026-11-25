@@ -35,6 +35,10 @@ void syncWithPopups(GfxRenderer& renderer, void (*restartAfterSync)()) {
 }  // namespace
 
 void startOpdsSync(Activity& host, GfxRenderer& renderer, MappedInputManager& mappedInput, void (*restartAfterSync)()) {
+  // Online already (a saved network in range, or the phone's mobile data): no need to ask which network. Only when
+  // neither works does the selection screen open, so a missing network can still be chosen by hand.
+  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
+  if (opdssync::joinWifiOrFallback()) return syncWithPopups(renderer, restartAfterSync);
   auto wifi = makeUniqueNoThrow<WifiSelectionActivity>(renderer, mappedInput);
   if (!wifi) return;
   host.startActivityForResult(std::move(wifi), [&renderer, restartAfterSync](const ActivityResult& result) {
